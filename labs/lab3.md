@@ -40,38 +40,24 @@ In this lab you will practice:
 1. **Read and Implement Quickstart:**
 
    - Read and follow the GitLab CI [quickstart guide](https://docs.gitlab.com/ee/ci/quick_start/).
+   - Create a `.gitlab-ci.yml` file in the root of your repository.
    - Document all your observations, key concepts, and steps you followed.
 
-2. **Create `.gitlab-ci.yml` file:**
+   <details>
+   <summary>💡 Hints</summary>
 
-   Create a file named `.gitlab-ci.yml` in the root of your repository:
+   - The pipeline configuration file must be named `.gitlab-ci.yml` (not `.yaml`)
+   - Place it in the repository root (same level as README.md)
+   - You'll need to define at least one job with a `script` section
+   - Consider using `echo`, `date`, or other simple commands to verify it's working
 
-   ```yaml
-   # .gitlab-ci.yml
-   stages:
-     - test
-
-   hello-job:
-     stage: test
-     script:
-       - echo "Hello, GitLab CI!"
-       - echo "This pipeline was triggered by a push event"
-       - date
-       - whoami
-     tags:
-       - docker  # or use 'shared' for GitLab.com shared runners
-   ```
+   </details>
 
 #### 1.2: Test Pipeline Trigger
 
 1. **Push Commit and Monitor:**
 
-   ```bash
-   git add .gitlab-ci.yml
-   git commit -m "ci: add initial GitLab CI pipeline"
-   git push origin main
-   ```
-
+   - Commit and push your `.gitlab-ci.yml` file
    - Navigate to your project → **Build → Pipelines** (or CI/CD → Pipelines)
    - Observe the running pipeline
    - Click on the pipeline to see job details and logs
@@ -92,103 +78,55 @@ In `labs/submission3.md`, document:
 
 1. **Extend Pipeline with Manual Trigger:**
 
-   Update your `.gitlab-ci.yml`:
+   <details>
+   <summary>📚 Where to find manual trigger documentation</summary>
 
-   ```yaml
-   stages:
-     - test
-     - info
-
-   hello-job:
-     stage: test
-     script:
-       - echo "Hello, GitLab CI!"
-       - echo "This pipeline was triggered automatically"
-       - date
-
-   manual-job:
-     stage: test
-     script:
-       - echo "This job was triggered manually!"
-       - date
-     when: manual  # This makes the job manual
-     allow_failure: true  # Pipeline succeeds even if not run
-   ```
-
-   **Documentation:**
    - [GitLab CI YAML Reference - when:manual](https://docs.gitlab.com/ee/ci/yaml/#when)
    - [Running jobs manually](https://docs.gitlab.com/ee/ci/jobs/#run-a-manual-job)
+   - Look for the `when` keyword in the documentation
+   - Consider using `allow_failure: true` to prevent blocking the pipeline
+
+   </details>
 
 #### 2.2: Test Manual Trigger
 
 1. **Trigger Job Manually:**
 
-   - Push the updated `.gitlab-ci.yml`
+   - Push your updated `.gitlab-ci.yml`
    - Navigate to **Build → Pipelines** → Click on your pipeline
-   - Find the `manual-job` and click the play button ▶️ to run it manually
+   - Find your manual job and click the play button ▶️ to run it
    - View the job logs
 
 #### 2.3: Gather System Information
 
 1. **Add System Information Collection:**
 
-   Update your `.gitlab-ci.yml` to add a comprehensive system info job:
+   - Modify your pipeline to include an additional job for gathering system information
+   - Use appropriate commands to collect information about the runner, hardware specifications, and operating system details
 
-   ```yaml
-   stages:
-     - test
-     - info
+   <details>
+   <summary>💡 Useful commands and variables</summary>
 
-   hello-job:
-     stage: test
-     script:
-       - echo "Hello, GitLab CI!"
-       - date
+   **System commands:**
+   - `uname` - OS and kernel information
+   - `nproc` - number of CPU cores
+   - `free` - memory information
+   - `df` - disk space
+   - `cat /proc/cpuinfo` - detailed CPU info
 
-   manual-job:
-     stage: test
-     script:
-       - echo "This job was triggered manually!"
-       - date
-     when: manual
-     allow_failure: true
+   **GitLab CI variables:**
+   - `$CI_RUNNER_VERSION` - Runner version
+   - `$CI_RUNNER_DESCRIPTION` - Runner description
+   - `$CI_JOB_ID` - Current job ID
+   - `$CI_PIPELINE_ID` - Current pipeline ID
+   - [Full list of predefined variables](https://docs.gitlab.com/ee/ci/variables/predefined_variables.html)
 
-   system-info-job:
-     stage: info
-     script:
-       - echo "=== System Information ==="
-       - echo "Runner OS:" $(uname -s)
-       - echo "Kernel Version:" $(uname -r)
-       - echo "Architecture:" $(uname -m)
-       - echo ""
-       - echo "=== CPU Information ==="
-       - cat /proc/cpuinfo | grep "model name" | head -1
-       - echo "CPU Cores:" $(nproc)
-       - echo ""
-       - echo "=== Memory Information ==="
-       - free -h
-       - echo ""
-       - echo "=== Disk Space ==="
-       - df -h /
-       - echo ""
-       - echo "=== Runner Information ==="
-       - echo "GitLab Runner Version:" $CI_RUNNER_VERSION
-       - echo "Runner Description:" $CI_RUNNER_DESCRIPTION
-       - echo "Job ID:" $CI_JOB_ID
-       - echo "Pipeline ID:" $CI_PIPELINE_ID
-     tags:
-       - docker
-   ```
+   </details>
 
 2. **Push and Verify:**
 
-   ```bash
-   git add .gitlab-ci.yml
-   git commit -m "ci: add system information job"
-   git push origin main
-   ```
-
-   View the `system-info-job` logs to see detailed runner information.
+   - Commit and push your changes
+   - View the job logs to see detailed runner information
 
 In `labs/submission3.md`, document:
 - Changes made to the `.gitlab-ci.yml` file
