@@ -1,0 +1,56 @@
+# Student-produced artifacts — NOT part of the course repo.
+# These live in a student's fork of the course, not upstream.
+
+# Student submission directory (students submit via Moodle/link, not git)
+submissions/
+
+# Instructor-only reference submissions (dry-run results, not student deliverables)
+refs/
+
+# Vagrant + VirtualBox runtime state (Lab 5)
+.vagrant/
+
+# Build artifacts the labs may produce locally
+app/quicknotes
+app/data/
+
+# Docker
+docker-compose.override.yaml
+*.pcap
+
+# Nix (Lab 11)
+result
+result-*
+
+# WASM (Lab 12)
+wasm/main.wasm
+wasm/go.sum
+
+# Cloud (Lab 10)
+.gcloudignore
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Python venvs that students sometimes create
+.venv/
+__pycache__/
+*.pyc
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI artifacts
+zap-baseline.html
+zap-baseline.json
+trivy-*.txt
+*.sbom.cdx.json
+
+# Claude / agent local config
+.claude/
