@@ -139,7 +139,7 @@ Every main lab (1-10) follows the same shape:
 | **Task 3** | 1 pt | *Lab 1 only* — open-source community engagement (GH or GitLab) | Lab 1 only |
 | **Bonus Task** | 2 | Extension for motivated students (flat 2 pts each, no difficulty weighting). | No |
 
-Bonus labs 11 & 12: **Task 1 (6 pts) + Task 2 (4 pts) only** — the lab *is* the bonus.
+Bonus labs 11 & 12: **Task 1 (4 pts) + Task 2 (4 pts) + Bonus Task (2 pts) = 10 pts each.**
 
 ### Submission Workflow
 
@@ -164,9 +164,9 @@ PRs target the **upstream course repo's `main`**, not your fork's main.
 | **Main labs 1-10** (Task 1 + Task 2 + Task 3-where-applicable) | **70%** | Diligent project work — the floor for any serious student |
 | **Bonus tasks 1-10** (2 pts each, flat — no difficulty weighting) | **14%** | Going above and beyond on weekly topics |
 | **Quiz leaderboards** (5 rolling per-2-labs windows, top-10 share 1% pool each) | **up to 5%** | Engagement + excellence; rewards late-joining students too |
-| **Bonus labs 11 + 12** (Task 1 + Task 2 only — 10 pts each) | **30%** | Mastering reproducibility + WebAssembly |
+| **Bonus labs 11 + 12** (4+4+2 pts each — 10 pts each, 20 raw total) | **20%** | Mastering reproducibility + WebAssembly |
 | **Final exam** | **30%** | Optional path — written, comprehensive |
-| **Sum (capped at 100%)** | **149%** | Multiple paths to A |
+| **Sum (capped at 100%)** | **139%** | Multiple paths to A |
 
 ### What this produces in practice
 
@@ -176,8 +176,10 @@ PRs target the **upstream course repo's `main`**, not your fork's main.
 | All Task 1+2, no bonuses, no exam | 70% | 0% | 0% | 0% | 0% | **70%** |
 | Add all weekly bonuses | 70% | 14% | 0% | 0% | 0% | **84%** |
 | + good quiz | 70% | 14% | 0% | 0% | 5% | **89%** ← *just short of A* |
-| + finish at least one bonus lab | 70% | 14% | 15% | 0% | 5% | **100%** (capped) |
-| Or take the exam instead | 70% | 14% | 0% | 25% | 5% | **100%** (capped) |
+| + finish at least one bonus lab (10 pts → 10% of grade) | 70% | 14% | 10% | 0% | 5% | **99%** (A) |
+| + both bonus labs (20 pts → 20% of grade) | 70% | 14% | 20% | 0% | 5% | **109%** (capped 100%, A) |
+| Or take the exam instead of bonus labs | 70% | 14% | 0% | 30% | 5% | **119%** (capped 100%, A) |
+| Do everything | 70% | 14% | 20% | 30% | 5% | **139%** (capped 100%, A with overflow signal) |
 | Coast (Task 1 only + lucky quiz) | 42% | 0% | 0% | 0% | 5% | **47%** |
 
 ### Quiz leaderboards (the 5%)

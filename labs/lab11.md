@@ -2,13 +2,13 @@
 
 ![difficulty](https://img.shields.io/badge/difficulty-advanced-red)
 ![topic](https://img.shields.io/badge/topic-Reproducible%20Builds%20%2F%20Nix-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![points](https://img.shields.io/badge/points-4%2B4%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Nix%20Flakes%20%2B%20Go-informational)
 
-> **Goal:** Write a Nix flake that builds QuickNotes reproducibly. Extend it to build a deterministic OCI image. Prove that two independent builds produce the same SHA-256 image digest.
+> **Goal:** Write a Nix flake that builds QuickNotes reproducibly. Extend it to build a deterministic OCI image. Prove that two independent builds produce the same SHA-256 image digest. Bonus: verify reproducibility from CI (two parallel runs, identical digests).
 > **Deliverable:** A PR from `feature/lab11` to the course repo with `flake.nix` (+ `flake.lock`) + `submissions/lab11.md`.
 
-> 🎁 **Bonus lab.** 10 pts total, no Bonus row — Tasks 1 + 2 *are* the challenge.
+> 🎁 **Bonus lab.** 10 pts total, structured as Task 1 (4) + Task 2 (4) + Bonus Task (2). This lab is the bonus; its full 10 pts count toward the bonus-labs grade weight.
 
 ---
 
@@ -41,7 +41,7 @@ By the end:
 
 ---
 
-## Task 1 — Reproducible Go Build via Nix Flake (6 pts)
+## Task 1 — Reproducible Go Build via Nix Flake (4 pts)
 
 ### 1.1: Requirements
 
@@ -155,18 +155,60 @@ In `submissions/lab11.md`:
 
 ---
 
+## Bonus Task — CI-Verified Reproducibility (2 pts)
+
+### B.1: Goal
+
+Reproducibility you can't prove in CI is folklore. Wire your Nix build into **GitHub Actions** (or GitLab CI) so that **two independent runs** in CI produce identical digests — automatically, on every push.
+
+### B.2: Requirements
+
+Add a CI workflow (e.g. `.github/workflows/nix-repro.yml`) that:
+
+1. Triggers on push to any branch + pull requests
+2. Runs **two parallel jobs** (or uses a matrix with two cells) — each on a fresh runner
+3. Each job:
+   - Checks out the repo
+   - Installs Nix (use the [Determinate Nix Installer Action](https://github.com/DeterminateSystems/nix-installer-action) or `cachix/install-nix-action` — pinned by SHA)
+   - Runs `nix build .#docker`
+   - Computes `sha256sum result | awk '{print $1}'`
+   - Uploads that digest as a job output
+4. A **third job** consumes both outputs and **fails the workflow** if they differ
+5. **Pin** the Nix installer action by 40-char SHA (per the Lab 3 rule)
+
+### B.3: Demonstrate it caught a divergence
+
+Deliberately break reproducibility in one of the two jobs (e.g. by setting a different `SOURCE_DATE_EPOCH` env var only in job A). Push. Confirm the third job goes **red**. Then fix it. Confirm green.
+
+### B.4: Design questions
+
+- h) **What's the difference between "reproducible on my laptop" and "reproducible in CI"** that makes the CI proof load-bearing for a security auditor?
+- i) **Why two parallel jobs** instead of one job that runs `nix build` twice? What could a single-job two-build comparison miss?
+- j) **`SOURCE_DATE_EPOCH`** is the canonical env var for forcing build timestamps. Where in your Nix flake would the timestamp normally leak in, and how does `dockerTools.buildImage` handle it?
+
+### B.5: Document
+
+In `submissions/lab11.md`:
+- The workflow YAML (paste or link)
+- Green CI run URL + log excerpt showing the two digests match
+- Red CI run URL showing the digest-mismatch failure
+- Design questions h, i, j answered
+
+---
+
 ## How to Submit
 
 1. `flake.nix` + `flake.lock` at the repo root
-2. `submissions/lab11.md` covers both tasks
-3. PR from `feature/lab11` → course repo's `main`
-4. Submit the PR URL via Moodle
+2. *(Bonus)* CI workflow + evidence of green and red runs
+3. `submissions/lab11.md` covers all attempted tasks
+4. PR from `feature/lab11` → course repo's `main`
+5. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-### Task 1 (6 pts)
+### Task 1 (4 pts)
 - ✅ Flake builds QuickNotes via `nix build .#quicknotes`
 - ✅ `./result/bin/quicknotes` runs and serves `/health`
 - ✅ Two independent builds produce **identical** store hashes
@@ -179,17 +221,23 @@ In `submissions/lab11.md`:
 - ✅ Comparison with non-reproducible Lab 6 image documented
 - ✅ Design questions e, f, g answered
 
+### Bonus Task (2 pts)
+- ✅ CI workflow runs two parallel `nix build` jobs and asserts equal digests
+- ✅ Both a green run AND a deliberately-broken red run exist
+- ✅ Design questions h, i, j answered
+
 ---
 
 ## Rubric
 
 | Task | Points | Criteria |
 |------|-------:|----------|
-| **Task 1** — Reproducible Go build | **6** | Flake correct, two-environment hash match, design questions |
+| **Task 1** — Reproducible Go build | **4** | Flake correct, two-environment hash match, design questions |
 | **Task 2** — Deterministic OCI image | **4** | Loadable image, two-environment digest match, vs-Lab 6 comparison |
-| **Total** | **10** | (bonus lab — no Bonus row) |
+| **Bonus** — CI-verified reproducibility | **2** | Two-parallel-jobs CI gate, green + red runs, design questions |
+| **Total** | **10** | (bonus lab — contributes toward bonus-labs grade weight) |
 
-> 📝 **No "Bonus Task" in this lab.** Lab 11 is itself a bonus lab — Task 1 + Task 2 *are* the challenge. The lab's full 10 pts contribute toward your bonus-labs grade weight (see the course [README](../README.md)).
+> 📝 **Lab 11 itself is a bonus lab** — its full 10 pts go into the bonus-labs grade component (20% of the final grade; see the course [README](../README.md)).
 
 ---
 

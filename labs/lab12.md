@@ -2,13 +2,13 @@
 
 ![difficulty](https://img.shields.io/badge/difficulty-advanced-red)
 ![topic](https://img.shields.io/badge/topic-WebAssembly-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![points](https://img.shields.io/badge/points-4%2B4%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Spin%20%2B%20TinyGo-informational)
 
-> **Goal:** Build a single QuickNotes-style HTTP endpoint as a WASM module served by Fermyon Spin's WAGI executor. Compare cold-start and image size against the Lab 6 Docker container.
+> **Goal:** Build a single QuickNotes-style HTTP endpoint as a WASM module served by Fermyon Spin's WAGI executor. Compare cold-start and image size against the Lab 6 Docker container. Bonus: run the same `.wasm` under a second WASI runtime (`wasmtime`) and compare.
 > **Deliverable:** A PR from `feature/lab12` to the course repo with `wasm/` + `submissions/lab12.md`. Submit the PR link via Moodle.
 
-> 🎁 **Bonus lab.** 10 pts total, no Bonus row — Tasks 1 + 2 *are* the challenge.
+> 🎁 **Bonus lab.** 10 pts total, structured as Task 1 (4) + Task 2 (4) + Bonus Task (2). This lab is the bonus; its full 10 pts count toward the bonus-labs grade weight.
 
 ---
 
@@ -41,7 +41,7 @@ By the end:
 
 ---
 
-## Task 1 — Build a WASM Endpoint with Spin/WAGI (6 pts)
+## Task 1 — Build a WASM Endpoint with Spin/WAGI (4 pts)
 
 ### 1.1: Requirements
 
@@ -137,19 +137,63 @@ In `submissions/lab12.md`:
 
 ---
 
+## Bonus Task — Cross-Runtime Portability (2 pts)
+
+### B.1: Goal
+
+WebAssembly's biggest pitch is **"compile once, run anywhere"** — a `.wasm` module should run identically under any WASI-conformant runtime. Prove (or disprove) this with **the same `main.wasm`** under **two** runtimes.
+
+### B.2: Requirements
+
+Run the **exact same `main.wasm`** from Task 1 under:
+
+1. **Spin / WAGI** (already running from Task 1)
+2. **`wasmtime`** standalone — the Bytecode Alliance's reference WASI runtime
+
+For the `wasmtime` path you'll need to write a small WAGI-shaped wrapper: `wasmtime` doesn't speak HTTP by default. Two options:
+- **Easiest:** Use `wasmtime serve` (if your version supports it) or `wasmtime` + a thin TCP→stdin shim
+- **Cleaner:** Implement a 10-line Go HTTP server on your host that, per request, runs `wasmtime run main.wasm` with appropriate env vars (REQUEST_METHOD, PATH_INFO) and forwards stdout to the HTTP client — exactly the WAGI contract by hand
+
+### B.3: Measure both
+
+Use `hyperfine` (or `wrk`) on both endpoints with identical inputs:
+
+| Metric | Spin/WAGI (port 3000) | wasmtime + shim (your port) |
+|--------|----------------------:|----------------------------:|
+| Cold start (process start → first response) | ? | ? |
+| Warm latency p50 | ? | ? |
+| Warm latency p95 | ? | ? |
+| Process RSS at idle | ? | ? |
+
+### B.4: Design questions
+
+- h) **The same `.wasm` ran under both runtimes — what's the same, what's different?** What does "portable across runtimes" actually buy you in practice?
+- i) **Why is `wasmtime` slower (or faster) than Spin** for the same module? What is Spin doing that pure `wasmtime` is not? Be specific (caching, JIT compilation, instance pooling)
+- j) **If you were picking a WASM runtime for production tomorrow**, which factors (besides perf) would tip you toward Spin vs `wasmtime` vs `wasmedge` vs Cloudflare Workers? List ≥ 3
+
+### B.5: Document
+
+In `submissions/lab12.md`:
+- Both run commands (`spin up …`, `wasmtime …`)
+- The full 4-row comparison table with real numbers from your hardware
+- Design questions h, i, j answered
+
+---
+
 ## How to Submit
 
 1. `wasm/` directory in your fork with `main.go`, `go.mod` (if any), `spin.toml`
-2. (Optional) `main.wasm` build artifact gitignored
-3. `submissions/lab12.md` covers both tasks
-4. PR from `feature/lab12` → course repo's `main`
-5. Submit the PR URL via Moodle
+2. *(Bonus)* The wasmtime wrapper / script you wrote
+3. (Optional) `main.wasm` build artifact gitignored
+4. `submissions/lab12.md` covers all attempted tasks
+5. PR from `feature/lab12` → course repo's `main`
+6. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-### Task 1 (6 pts)
+### Task 1 (4 pts)
 - ✅ `main.wasm` builds with TinyGo for WASI
 - ✅ `spin up` serves `/time` returning Moscow-time JSON
 - ✅ `main.wasm` ≤ 2 MB
@@ -160,17 +204,23 @@ In `submissions/lab12.md`:
 - ✅ Cold + warm + size captured
 - ✅ Design questions e, f, g answered
 
+### Bonus Task (2 pts)
+- ✅ Same `main.wasm` runs under both Spin and `wasmtime`
+- ✅ Comparison table with real measurements
+- ✅ Design questions h, i, j answered
+
 ---
 
 ## Rubric
 
 | Task | Points | Criteria |
 |------|-------:|----------|
-| **Task 1** — TinyGo + Spin WAGI module | **6** | main.wasm builds, /time JSON correct, ≤ 2 MB, design questions |
+| **Task 1** — TinyGo + Spin WAGI module | **4** | main.wasm builds, /time JSON correct, ≤ 2 MB, design questions |
 | **Task 2** — Perf comparison vs Lab 6 | **4** | Real table, cold + warm + size, design questions |
-| **Total** | **10** | (bonus lab — no Bonus row) |
+| **Bonus** — Cross-runtime portability | **2** | Same .wasm on two runtimes, comparison table, design questions |
+| **Total** | **10** | (bonus lab — contributes toward bonus-labs grade weight) |
 
-> 📝 **No "Bonus Task" in this lab.** Lab 12 is itself a bonus lab — Task 1 + Task 2 *are* the challenge. The lab's full 10 pts contribute toward your bonus-labs grade weight (see the course [README](../README.md)).
+> 📝 **Lab 12 itself is a bonus lab** — its full 10 pts go into the bonus-labs grade component (20% of the final grade; see the course [README](../README.md)).
 
 ---
 
@@ -202,4 +252,5 @@ In `submissions/lab12.md`:
 - 📖 [WASI documentation](https://wasi.dev/)
 - 📖 [Bytecode Alliance — WASI Preview 2](https://bytecodealliance.org/articles/wasi-preview-2-launch)
 - 🎥 [Lin Clark — *A cartoon introduction to WebAssembly*](https://hacks.mozilla.org/2017/02/a-cartoon-intro-to-webassembly/)
-- 🛠️ [`hyperfine`](https://github.com/sharkdp/hyperfine), [`wasm2wat`](https://github.com/WebAssembly/wabt)
+- 📖 [`wasmtime` docs](https://docs.wasmtime.dev/) — for the Bonus runtime
+- 🛠️ [`hyperfine`](https://github.com/sharkdp/hyperfine), [`wasm2wat`](https://github.com/WebAssembly/wabt), [`wasmtime`](https://wasmtime.dev/)
