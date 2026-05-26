@@ -5,21 +5,21 @@
 ![points](https://img.shields.io/badge/points-10-orange)
 ![tech](https://img.shields.io/badge/tech-Nix%20Flakes%20%2B%20Go-informational)
 
-> **Goal:** Build QuickNotes reproducibly with a Nix flake. Then build a deterministic OCI image of QuickNotes using `dockerTools.buildImage` and prove that two independent builds produce the same SHA-256 image digest.
-> **Deliverable:** A PR from `feature/lab11` to the course repo with `nix/` (or `flake.nix` at root) + `submissions/lab11.md`. Submit the PR link via Moodle.
+> **Goal:** Write a Nix flake that builds QuickNotes reproducibly. Extend it to build a deterministic OCI image. Prove that two independent builds produce the same SHA-256 image digest.
+> **Deliverable:** A PR from `feature/lab11` to the course repo with `flake.nix` (+ `flake.lock`) + `submissions/lab11.md`.
 
-> 🎁 **This is a bonus lab.** Worth 10 pts, no Bonus row — Task 1 + Task 2 *are* the challenge.
+> 🎁 **Bonus lab.** 10 pts total, no Bonus row — Tasks 1 + 2 *are* the challenge.
 
 ---
 
 ## Overview
 
-In Lab 6 you built a Docker image. It's tiny — but try rebuilding it from the same Git SHA on a colleague's laptop and the resulting image's SHA-256 digest will differ. **This lab fixes that.**
+You will not be handed a flake. Read [Reading 11](../lectures/reading11.md) first; then write the flake from requirements + docs.
 
 By the end:
-- A `flake.nix` describes how to build QuickNotes; `nix build` produces a byte-for-byte identical binary every time
-- A second flake output builds an OCI image deterministically; the digest is the same across machines
-- You've experienced the broader payoff: *anyone* can audit your build by reproducing it
+- A `flake.nix` at the repo root builds the QuickNotes binary
+- A second flake output builds a deterministic OCI image
+- Two independent builds (different machines or `nix store gc`-ed clones) produce **identical** SHA-256 image digests
 
 ---
 
@@ -27,188 +27,137 @@ By the end:
 
 **Starting point:** Lab 6 Docker image works. QuickNotes builds with `go build` (Lab 1).
 
-**After this lab:** A Nix flake at the repo root; two `nix build` commands produce a binary and a Docker image; reproducibility verified across runs.
+**After this lab:** A flake at the repo root; reproducibility verified across two independent runs.
 
 ---
 
 ## Prerequisites
 
-- Install Nix (multi-user) with Flakes enabled:
-  - **Recommended:** [Determinate Nix Installer](https://determinate.systems/posts/determinate-nix-installer/)
-  - On Ubuntu/Debian: `curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install`
-  - On macOS: same installer; works under Rosetta or native ARM
-- 8 GB free disk (Nix store can grow)
-- One Nix-savvy classmate, or willingness to ssh into a fresh box, for the reproducibility verification
+- Read [Reading 11](../lectures/reading11.md)
+- Install Nix with Flakes enabled:
+  - [Determinate Nix Installer](https://determinate.systems/posts/determinate-nix-installer/) (recommended)
+- ≥ 8 GB free disk
+- A second machine, fresh Docker container (`docker run -it nixos/nix bash`), or a colleague — for verifying reproducibility
 
 ---
 
 ## Task 1 — Reproducible Go Build via Nix Flake (6 pts)
 
-### 1.1: Initialize the flake
+### 1.1: Requirements
 
-At the repo root:
+Your `flake.nix` at the **repo root** MUST:
 
-```bash
-nix flake init
-# overwrite the default flake.nix with the content below
-```
+1. Pin **nixpkgs** to a specific channel revision in `inputs:` (e.g. `nixos-24.11`)
+2. Expose a package `quicknotes` (and `default`) that **builds the QuickNotes Go source from `app/`**
+3. Use `buildGoModule` (or `buildGoApplication`, etc. — your choice; document why)
+4. Set **`CGO_ENABLED = 0`** so the binary is static
+5. Pin **`vendorHash`** (you'll get the value from the first failed build — paste it in)
+6. Use **`-ldflags = [ "-s" "-w" ]`** for size + reproducibility (carried from Lab 6)
+7. Expose a `devShell` with `go`, `gopls`, and `golangci-lint` so collaborators can `nix develop` into the project
 
-### 1.2: Write `flake.nix`
+The flake MUST commit cleanly together with **`flake.lock`** (auto-generated) so anyone cloning gets the exact same nixpkgs revision.
 
-```nix
-{
-  description = "QuickNotes — DevOps-Intro reproducible build";
+### 1.2: Verify reproducibility
 
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
-  };
-
-  outputs = { self, nixpkgs }:
-    let
-      system = "x86_64-linux";
-      pkgs   = nixpkgs.legacyPackages.${system};
-    in {
-      packages.${system}.quicknotes = pkgs.buildGoModule {
-        pname = "quicknotes";
-        version = "0.1.0";
-        src = ./app;
-        vendorHash = null;          # fill in after first build
-        CGO_ENABLED = 0;
-        ldflags = [ "-s" "-w" ];
-        proxyVendor = true;
-      };
-
-      packages.${system}.default = self.packages.${system}.quicknotes;
-
-      devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [ go gopls golangci-lint ];
-      };
-    };
-}
-```
-
-### 1.3: First build (computes vendor hash)
+The proof for Task 1 is that **two independent builds produce identical store hashes**:
 
 ```bash
-git add flake.nix
-nix build .#quicknotes
-# fails with: hash mismatch ... got: sha256-XXXXXXXX
-```
-
-Copy the `got:` hash into `vendorHash` in `flake.nix`. Re-run:
-
-```bash
-nix build .#quicknotes
-./result/bin/quicknotes &      # smoke test
-sleep 1
-curl -s http://localhost:8080/health
-kill %1
-```
-
-### 1.4: Reproduce on a different machine (or fresh sandbox)
-
-The key proof:
-
-```bash
-# on machine A
-nix-store --query --hash $(readlink result)
-# e.g.: sha256:abc123...
-
-# on machine B (or after `nix store gc` and a fresh clone)
-git clone YOUR_FORK quicknotes-fresh
-cd quicknotes-fresh
+# machine A (or first sandbox)
 nix build .#quicknotes
 nix-store --query --hash $(readlink result)
-# must match machine A
+# e.g. sha256:abc123...
+
+# machine B (or `docker run -it nixos/nix bash`, fresh clone)
+git clone YOUR_FORK qn-fresh
+cd qn-fresh
+nix build .#quicknotes
+nix-store --query --hash $(readlink result)
+# MUST match machine A
 ```
+
+### 1.3: Design questions
+
+- a) **Why does `go build` not produce bit-identical outputs** on two machines, even from the same Git SHA? (Hint: timestamps, vendor resolution, build IDs.)
+- b) **`vendorHash`** is a SHA over what, exactly? What happens if you set `vendorHash = null;`?
+- c) **`flake.lock`** pins nixpkgs. Why is this the single most important file for reproducibility? What happens if you delete it before the second build?
+- d) **`buildGoModule` vs `buildGoApplication`** — what's the difference? Which would you pick for QuickNotes and why?
+
+### 1.4: Where to start
+
+- 📖 [Nix Pills](https://nixos.org/guides/nix-pills/) — chapter 1-5 cover the model
+- 📖 [Zero to Nix](https://zero-to-nix.com/) — Determinate's modern walkthrough
+- 📖 [`buildGoModule` reference](https://ryantm.github.io/nixpkgs/languages-frameworks/go/) (nixpkgs section)
+- 📖 [Flakes reference](https://nixos.wiki/wiki/Flakes)
 
 ### 1.5: Document
 
 In `submissions/lab11.md`:
-- The full `flake.nix`
-- The two machines' `nix-store --query --hash` outputs (identical)
-- `nix build .#quicknotes` build log excerpt
-- `./result/bin/quicknotes --help` (or a curl against it)
-- One paragraph: *what gives Nix bit-for-bit determinism that `go build` doesn't?*
+- Your `flake.nix` (paste; flake.lock can be linked)
+- `nix build .#quicknotes` log excerpt
+- Two `nix-store --query --hash` outputs from two independent environments — identical
+- `./result/bin/quicknotes &` + `curl /health` proof it runs
+- Design questions a-d answered
 
 ---
 
-## Task 2 — Deterministic OCI Image via `dockerTools.buildImage` (4 pts)
+## Task 2 — Deterministic OCI Image (4 pts)
 
-### 2.1: Extend `flake.nix`
+### 2.1: Requirements
 
-Add this output:
+Extend `flake.nix` to expose a `docker` (or similar) package using **`pkgs.dockerTools.buildImage`** that:
 
-```nix
-packages.${system}.docker = pkgs.dockerTools.buildImage {
-  name = "quicknotes";
-  tag = "v0.1.0";
-  config = {
-    Entrypoint = [
-      "${self.packages.${system}.quicknotes}/bin/quicknotes"
-    ];
-    ExposedPorts = { "8080/tcp" = {}; };
-    User = "nonroot";
-  };
-};
-```
+1. Produces an OCI image tarball containing the QuickNotes binary from Task 1
+2. Sets the binary as `Entrypoint` (exec form)
+3. Sets `ExposedPorts` to include `8080/tcp`
+4. Runs as a `nonroot` user (carry forward Lab 6's discipline)
+5. The image is built **without Docker** — only Nix tooling
 
-### 2.2: Build the image
+### 2.2: Verify reproducibility
+
+The proof for Task 2 is that **two independent builds produce identical SHA-256 image digests**:
 
 ```bash
+# environment A
 nix build .#docker
-# result is a symlink to the OCI image tarball
-ls -lh result
-# load into Docker
-docker load < result
-docker images quicknotes:v0.1.0
-docker run --rm -p 8080:8080 quicknotes:v0.1.0 &
-sleep 2
-curl -s http://localhost:8080/health
-docker kill $(docker ps -q --filter ancestor=quicknotes:v0.1.0)
+sha256sum result            # capture digest
+
+# environment B
+nix build .#docker
+sha256sum result            # MUST match
 ```
 
-### 2.3: Two-clone reproducibility test
+### 2.3: Compare with Lab 6's Dockerfile build
+
+Build the Lab 6 image fresh **twice** with `--no-cache`:
 
 ```bash
-# clone A
-nix build .#docker
-sha256sum result/*.tar.gz || sha256sum result    # capture digest
-
-# clone B (or fresh sandbox)
-git clone YOUR_FORK qn-fresh
-cd qn-fresh
-nix build .#docker
-sha256sum result/*.tar.gz                          # must match
+docker build --no-cache -t qn-lab6:run1 ./app
+docker build --no-cache -t qn-lab6:run2 ./app
+docker images --no-trunc qn-lab6
 ```
 
-Capture both digests. They **must be identical**.
+Typically the Lab 6 digests **differ** (timestamps in the layers).
 
-### 2.4: Compare with Lab 6's image
+### 2.4: Design questions
 
-Build the Lab 6 Docker image fresh twice and capture two `docker image ls` digests:
-
-```bash
-docker build --no-cache -t qn-d:1 ./app
-docker build --no-cache -t qn-d:2 ./app
-docker images --no-trunc qn-d
-```
-
-Typically the Lab 6 digests **differ** (timestamps in layers).
+- e) **`dockerTools.buildImage` produces a deterministic image. What does Docker's `docker build` do** that introduces non-determinism, even from the same Dockerfile + Git SHA?
+- f) **For a security auditor**, what can you prove with a reproducible image that you *cannot* prove with a signed-but-non-reproducible image?
+- g) **What's the trade-off** of Nix's reproducibility? Why is `docker build` still the default for most teams?
 
 ### 2.5: Document
 
 In `submissions/lab11.md`:
 - The extended `flake.nix` snippet
-- Image size comparison: Nix-built vs Lab 6 Docker-built
-- Two digests proving reproducibility (or differences for Lab 6)
-- A 4-5 sentence reflection: *with reproducible builds, what could you prove to a security auditor that you cannot prove today?*
+- Image-size comparison: Nix-built vs Lab 6 Docker-built
+- Two `sha256sum` outputs proving identical Nix digests
+- The two `docker images --no-trunc` digests proving Lab 6 differs
+- Design questions e, f, g answered
 
 ---
 
 ## How to Submit
 
-1. `flake.nix` (+ `flake.lock`) at the repo root
+1. `flake.nix` + `flake.lock` at the repo root
 2. `submissions/lab11.md` covers both tasks
 3. PR from `feature/lab11` → course repo's `main`
 4. Submit the PR URL via Moodle
@@ -218,14 +167,17 @@ In `submissions/lab11.md`:
 ## Acceptance Criteria
 
 ### Task 1 (6 pts)
-- ✅ `flake.nix` builds QuickNotes via `nix build .#quicknotes`
+- ✅ Flake builds QuickNotes via `nix build .#quicknotes`
 - ✅ `./result/bin/quicknotes` runs and serves `/health`
-- ✅ Two independent builds (different machines or `nix store gc`-ed clones) produce identical store hashes
+- ✅ Two independent builds produce **identical** store hashes
+- ✅ `flake.lock` committed
+- ✅ Design questions a-d answered
 
 ### Task 2 (4 pts)
-- ✅ `nix build .#docker` produces an OCI image loadable via `docker load`
+- ✅ `nix build .#docker` produces an OCI image, loadable via `docker load`
 - ✅ Two independent builds produce identical SHA-256 tarball digests
 - ✅ Comparison with non-reproducible Lab 6 image documented
+- ✅ Design questions e, f, g answered
 
 ---
 
@@ -233,39 +185,39 @@ In `submissions/lab11.md`:
 
 | Task | Points | Criteria |
 |------|-------:|----------|
-| **Task 1** — Nix flake reproducible Go binary | **6** | Flake correct, two-machine hash match, vendorHash pinned |
-| **Task 2** — Deterministic OCI image | **4** | Loadable image, two-clone digest match, comparison with Lab 6 |
+| **Task 1** — Reproducible Go build | **6** | Flake correct, two-environment hash match, design questions |
+| **Task 2** — Deterministic OCI image | **4** | Loadable image, two-environment digest match, vs-Lab 6 comparison |
 | **Total** | **10** | (bonus lab — no Bonus row) |
 
-> 📝 **No "Bonus Task" in this lab.** Lab 11 is itself a bonus lab — Task 1 + Task 2 *are* the challenge. The lab's full 10 pts contribute toward your bonus-labs grade weight (see the course README).
+> 📝 **No "Bonus Task" in this lab.** Lab 11 is itself a bonus lab — Task 1 + Task 2 *are* the challenge. The lab's full 10 pts contribute toward your bonus-labs grade weight (see the course [README](../README.md)).
 
 ---
 
 ## Common Pitfalls
 
-- 🪤 **First build fails: `hash mismatch`** — Nix is telling you what the correct `vendorHash` is. Copy/paste the `got:` line, rerun
-- 🪤 **`nix: command not found`** after install — open a new terminal (your shell's PATH was updated)
-- 🪤 **Different hashes on two machines** — usually means you forgot to `git add flake.lock`. The lockfile pins `nixpkgs` to a specific revision
+- 🪤 **First build fails: `hash mismatch`** — that's Nix telling you the *correct* `vendorHash`. Paste the `got:` line, rerun
+- 🪤 **`nix: command not found`** after install — open a new terminal so PATH refreshes
+- 🪤 **Different hashes on two machines** — usually means `flake.lock` is not committed. The lockfile pins nixpkgs to a specific revision
 - 🪤 **Out of disk** — Nix store grows. `nix store gc` reclaims unreferenced paths
-- 🪤 **`nix build` requires internet on first run** — downloads cached binaries from cache.nixos.org. Subsequent builds are mostly local
-- 🪤 **WSL2 + multi-user Nix can be janky** — use Determinate's installer; or stick to single-user on WSL2
+- 🪤 **`nix build` requires internet on first run** — downloads pre-built artifacts from cache.nixos.org. Subsequent builds are mostly local
+- 🪤 **WSL2 multi-user Nix is finicky** — use the Determinate installer; or single-user on WSL2
 
 ---
 
 ## Guidelines
 
-- Pin **both** `nixpkgs` (in `inputs`) and your binary's `vendorHash` — those two are the entire reproducibility story
-- The first build is slow; subsequent are seconds because everything is cached
-- For "two independent machines" you can also use Docker: `docker run --rm -it -v "$PWD:/repo" nixos/nix bash` provides a clean environment
-- Once you have this, you can move toward Cachix or Attic to share the cache across CI runs (out of scope, but worth a follow-up project)
+- The reproducibility proof is the deliverable; the flake is just how you got there
+- Pin everything: nixpkgs revision (via `flake.lock`), `vendorHash`, Go version
+- For "two independent environments" the easiest path is `docker run --rm -it -v "$PWD:/repo" -w /repo nixos/nix bash`
+- Once you have this, the natural next step is Cachix (shared binary cache) — out of scope but worth a follow-up project
 
 ---
 
 ## Resources
 
-- 📕 [Nix Pills](https://nixos.org/guides/nix-pills/) — the canonical intro
-- 📕 [Zero to Nix](https://zero-to-nix.com/) — Determinate Systems' modern walkthrough
+- 📕 [Nix Pills](https://nixos.org/guides/nix-pills/) — canonical intro
+- 📕 [Zero to Nix](https://zero-to-nix.com/)
 - 📗 [NixOS & Flakes Book](https://nixos-and-flakes.thiscute.world/)
 - 🎥 [Domen Kožar — *Boost your dev env with Nix*](https://www.youtube.com/watch?v=BdF6w3LkkdU)
 - 📝 [Reproducible Builds project](https://reproducible-builds.org/)
-- 📝 [Eelco Dolstra's PhD thesis (Nix paper)](https://edolstra.github.io/pubs/phd-thesis.pdf)
+- 📝 [Eelco Dolstra — original Nix paper (PhD thesis, 2004)](https://edolstra.github.io/pubs/phd-thesis.pdf)

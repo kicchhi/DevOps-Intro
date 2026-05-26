@@ -5,242 +5,160 @@
 ![points](https://img.shields.io/badge/points-10-orange)
 ![tech](https://img.shields.io/badge/tech-Spin%20%2B%20TinyGo-informational)
 
-> **Goal:** Build a tiny WASM module that serves a single QuickNotes-style endpoint via Fermyon Spin (WAGI executor). Compare cold-start and image size against the Lab 6 Docker container.
+> **Goal:** Build a single QuickNotes-style HTTP endpoint as a WASM module served by Fermyon Spin's WAGI executor. Compare cold-start and image size against the Lab 6 Docker container.
 > **Deliverable:** A PR from `feature/lab12` to the course repo with `wasm/` + `submissions/lab12.md`. Submit the PR link via Moodle.
 
-> 🎁 **This is a bonus lab.** Worth 10 pts, no Bonus row — Task 1 + Task 2 *are* the challenge.
+> 🎁 **Bonus lab.** 10 pts total, no Bonus row — Tasks 1 + 2 *are* the challenge.
 
 ---
 
 ## Overview
 
+You will not be handed a `main.go` or a `spin.toml`. Read [Reading 12](../lectures/reading12.md) first, then write the module from requirements + docs.
+
 By the end:
 - A Go program compiled to WASM via TinyGo
 - Spin runs the module behind HTTP at `localhost:3000`
-- The endpoint returns Moscow time as JSON (a single hot endpoint — keeping the WASM port minimal)
-- A measured comparison: cold-start, RSS, image size for WASM-Spin vs Docker-Lab 6
+- A measured comparison: cold-start, RSS, image size — WASM-Spin vs Docker-Lab 6
 
 ---
 
 ## Project State
 
-**Starting point:** Lab 6 image works (for comparison baseline). QuickNotes source in `app/`.
+**Starting point:** Lab 6 image works (baseline for comparison). QuickNotes source in `app/`.
 
-**After this lab:** A `wasm/` directory with `main.go`, `spin.toml`, build artifacts, and reproducible perf numbers.
+**After this lab:** A `wasm/` directory with the WASM module + Spin manifest + reproducible perf numbers.
 
 ---
 
 ## Prerequisites
 
-- TinyGo 0.34+ (`tinygo version`)
-- Fermyon Spin 3.x (`spin --version`) — install via [developer.fermyon.com/spin](https://developer.fermyon.com/spin)
-- `wabt` (optional, for `wasm2wat` inspection)
-- `hyperfine` or `wrk` for benchmarking
+- Read [Reading 12](../lectures/reading12.md)
+- TinyGo **0.34+** (`tinygo version`)
+- Fermyon Spin **3.x** ([developer.fermyon.com/spin](https://developer.fermyon.com/spin))
+- `hyperfine` (or `wrk`) for benchmarking
+- *(Optional)* `wabt` for `wasm2wat` inspection
 
 ---
 
 ## Task 1 — Build a WASM Endpoint with Spin/WAGI (6 pts)
 
-### 1.1: Lay out `wasm/`
+### 1.1: Requirements
 
-```text
-wasm/
-├── main.go
-├── go.mod
-├── spin.toml
-└── README.md
-```
+Write a Go program in `wasm/main.go` that:
 
-### 1.2: `wasm/main.go` — Moscow time as JSON
+1. Implements the **WAGI** request/response contract — reads request info from environment variables and stdin, writes the HTTP response (headers + blank line + body) to stdout
+2. Responds to a `GET /time` request with a **JSON** body containing the current **Moscow time** with at least:
+   - `unix` (epoch seconds)
+   - `iso` (RFC3339 timestamp)
+   - `hour_minute` (e.g. `"15:42"`)
+3. Sets a `Content-Type: application/json` response header
+4. Builds successfully with **TinyGo** targeting **WASI**:
+   ```
+   tinygo build -o main.wasm -target=wasi ./main.go
+   ```
+5. Final `main.wasm` weight: **≤ 2 MB** (TinyGo + WASI keeps this trivial)
 
-```go
-package main
+Write a `wasm/spin.toml` manifest that:
+- Declares an HTTP trigger at the `/time` route
+- Points the component at `main.wasm`
+- Uses the **WAGI** executor (not the Spin-SDK executor — keeps the Go code minimal)
+- Restricts `allowed_outbound_hosts` to `[]` (no outbound network — least privilege)
 
-import (
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"os"
-	"time"
-)
+### 1.2: Design questions
 
-func main() {
-	// WAGI: read the request from the environment + stdin, write to stdout
-	method := os.Getenv("REQUEST_METHOD")
-	path   := os.Getenv("PATH_INFO")
-	if method == "" { method = "GET" }
-	if path == ""   { path   = "/" }
+- a) **Browser WASM vs server WASM:** `go build -o m.wasm -target=js/wasm` produces a *browser* artifact requiring the Go runtime + JS glue. TinyGo + `-target=wasi` produces a *server* artifact. What's missing in the server target — and what do you gain?
+- b) **WAGI vs Spin SDK:** WAGI maps HTTP onto stdin/stdout, like CGI. Spin SDK exposes higher-level types. What did you gain by picking WAGI (which the lab requires)?
+- c) **`allowed_outbound_hosts = []`** is the strictest setting. What's the *capability-based* security model behind this? Compare it to Docker's `--network none`
+- d) **TinyGo stdlib gaps:** what part of upstream Go's stdlib does TinyGo *not* support that bit you during this lab? (Time zone data is a common one.)
 
-	moscow, _ := time.LoadLocation("Europe/Moscow")
-	now := time.Now().In(moscow)
+### 1.3: Where to start
 
-	resp := map[string]any{
-		"endpoint":    path,
-		"method":      method,
-		"city":        "Moscow",
-		"unix":        now.Unix(),
-		"iso":         now.Format(time.RFC3339),
-		"hour_minute": now.Format("15:04"),
-	}
+- 📖 [Spin docs](https://developer.fermyon.com/spin)
+- 📖 [TinyGo with WASI](https://tinygo.org/docs/guides/webassembly/wasi/)
+- 📖 [WAGI README](https://github.com/deislabs/wagi)
+- 📖 [Spin's WAGI executor guide](https://developer.fermyon.com/spin/v2/wagi-fundamentals)
 
-	body, _ := json.Marshal(resp)
-
-	// WAGI response: headers, blank line, body
-	fmt.Println("Content-Type: application/json")
-	fmt.Println()
-	fmt.Println(string(body))
-
-	// suppress unused
-	_ = http.StatusOK
-}
-```
-
-### 1.3: `wasm/go.mod`
-
-```text
-module quicknotes-wasm
-
-go 1.24
-```
-
-### 1.4: Build with TinyGo (WASI target)
+### 1.4: Run + verify
 
 ```bash
 cd wasm/
-tinygo build -o main.wasm -target=wasi -no-debug ./main.go
-ls -lh main.wasm     # expect ~500 KB - 2 MB
-```
-
-### 1.5: `wasm/spin.toml`
-
-```toml
-spin_manifest_version = 2
-
-[application]
-name = "quicknotes-wasm"
-version = "0.1.0"
-
-[[trigger.http]]
-route = "/time"
-component = "moscow-time"
-
-[component.moscow-time]
-source = "main.wasm"
-executor = { type = "wagi" }
-allowed_outbound_hosts = []
-```
-
-### 1.6: Run it
-
-```bash
-spin up   # binds on :3000 by default
-# in another terminal:
+tinygo build -o main.wasm -target=wasi ./main.go
+spin up &       # binds on :3000 by default
+sleep 1
 curl -s http://127.0.0.1:3000/time | python3 -m json.tool
 ```
 
-### 1.7: Document
+### 1.5: Document
 
 In `submissions/lab12.md`:
-- `main.go` + `spin.toml`
-- `tinygo build` output (size)
-- `curl` against `/time` showing the JSON response
-- One paragraph: *what's the WAGI executor doing? compare with a traditional HTTP framework*
+- `main.go` + `spin.toml` (paste or link)
+- TinyGo build output (size)
+- `curl` response showing valid Moscow time JSON
+- Design questions a-d answered
 
 ---
 
-## Task 2 — Performance Comparison: WASM vs Lab 6 Container (4 pts)
+## Task 2 — Perf Comparison vs Lab 6 Container (4 pts)
 
-### 2.1: Boot both
+### 2.1: Required measurements
 
-In one terminal:
+Boot **both**: Spin + the Lab 6 Docker container. Measure:
 
-```bash
-cd wasm/
-spin up &
-SPIN_PID=$!
-```
+1. **Warm latency** — after 5+ requests have already arrived, hit each with `hyperfine --warmup 5 --runs 50 'curl …'`. Capture p50.
+2. **Cold latency** — kill the runtime; restart; measure time to first successful response. Repeat 5 times per platform; capture distribution.
+3. **Artifact size** — `main.wasm` vs `quicknotes:lab6` image size.
+4. **(Optional but appreciated)** RSS at idle — `ps -o rss` on the Spin process vs `docker stats` on the container.
 
-In another:
+### 2.2: Table
 
-```bash
-docker run -d --name qn-lab12 -p 8080:8080 quicknotes:lab6
-```
+Build this table in `submissions/lab12.md` from real measurements:
 
-### 2.2: Cold + warm latency
+| Dimension              | Lab 6 Docker | Lab 12 WASM/Spin |
+|------------------------|-------------:|-----------------:|
+| Artifact size          |            ? |                ? |
+| Cold start (p50)       |            ? |                ? |
+| Warm latency p50       |            ? |                ? |
+| Warm latency p95       |            ? |                ? |
+| RSS at idle *(opt)*    |            ? |                ? |
 
-```bash
-# warm: hit it a few times to make sure both are alive
-for i in {1..5}; do curl -s -o /dev/null http://localhost:3000/time; done
-for i in {1..5}; do curl -s -o /dev/null http://localhost:8080/health; done
+### 2.3: Design questions
 
-# now benchmark warm
-hyperfine --warmup 3 --runs 50 \
-  'curl -s -o /dev/null http://localhost:3000/time' \
-  'curl -s -o /dev/null http://localhost:8080/health'
-```
+- e) **What dominates each platform's cold start?** (Container: pull, image extract, runtime init. WASM: ?) Be specific.
+- f) **For what workloads is WASM clearly the better choice — and where is Docker still right?** (See Reading 12 for trade-offs)
+- g) **Multi-tenant safety:** WASM's capability sandbox is stronger than Linux namespaces. What concrete attack does a WASM platform make harder?
 
-### 2.3: Cold-start (kill + restart)
-
-```bash
-# WASM cold
-kill $SPIN_PID
-sleep 1
-hyperfine --warmup 0 --runs 5 --shell=bash \
-  'spin up --listen 127.0.0.1:3000 &  sleep 0.3 && curl -s http://localhost:3000/time && kill %1'
-
-# Docker cold
-hyperfine --warmup 0 --runs 5 --shell=bash \
-  'docker run -d --name qn-cold -p 8081:8080 quicknotes:lab6 > /dev/null && \
-   until curl -fs http://localhost:8081/health > /dev/null; do :; done && \
-   docker rm -f qn-cold > /dev/null'
-```
-
-### 2.4: Sizes
-
-```bash
-du -h wasm/main.wasm
-docker images quicknotes:lab6 --format '{{.Size}}'
-```
-
-### 2.5: Document
+### 2.4: Document
 
 In `submissions/lab12.md`:
-- Hyperfine results: warm p50/p95/p99 for each
-- Cold-start results
-- Sizes: WASM module vs Docker image
-- A small comparison table:
-
-  | Dimension       | Lab 6 Docker | Lab 12 WASM/Spin |
-  |-----------------|--------------|------------------|
-  | Image size      | XX MB        | XX MB            |
-  | Cold start      | XX ms        | XX ms            |
-  | Warm latency p50| XX ms        | XX ms            |
-  | RSS at idle     | XX MB        | XX MB            |
-
-- 5-6 sentences: *for what workloads is the WASM model clearly better? what's the catch?* Reference Reading 12 if helpful.
+- The full perf table from your real measurements
+- A description of your test rig (machine, OS, region)
+- Design questions e, f, g answered (5-6 sentences total is fine)
 
 ---
 
 ## How to Submit
 
-1. `wasm/` directory in your fork with `main.go`, `go.mod`, `spin.toml`, `main.wasm` (optional — gitignored if large)
-2. `submissions/lab12.md` covers both tasks
-3. PR from `feature/lab12` → course repo's `main`
-4. Submit the PR URL via Moodle
+1. `wasm/` directory in your fork with `main.go`, `go.mod` (if any), `spin.toml`
+2. (Optional) `main.wasm` build artifact gitignored
+3. `submissions/lab12.md` covers both tasks
+4. PR from `feature/lab12` → course repo's `main`
+5. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
 ### Task 1 (6 pts)
-- ✅ `main.wasm` built with TinyGo (WASI target)
-- ✅ `spin up` serves `/time` returning Moscow time JSON
-- ✅ Brief explanation of WAGI
+- ✅ `main.wasm` builds with TinyGo for WASI
+- ✅ `spin up` serves `/time` returning Moscow-time JSON
+- ✅ `main.wasm` ≤ 2 MB
+- ✅ Design questions a-d answered
 
 ### Task 2 (4 pts)
-- ✅ Warm + cold latencies measured (hyperfine)
-- ✅ Sizes of both artifacts captured
-- ✅ Comparison table + written analysis
+- ✅ Full perf table with real numbers from your hardware
+- ✅ Cold + warm + size captured
+- ✅ Design questions e, f, g answered
 
 ---
 
@@ -248,39 +166,40 @@ In `submissions/lab12.md`:
 
 | Task | Points | Criteria |
 |------|-------:|----------|
-| **Task 1** — TinyGo + Spin module serving /time | **6** | main.wasm built, spin.toml correct, curl response works |
-| **Task 2** — Perf comparison vs Lab 6 | **4** | Cold + warm + size table, written trade-off |
+| **Task 1** — TinyGo + Spin WAGI module | **6** | main.wasm builds, /time JSON correct, ≤ 2 MB, design questions |
+| **Task 2** — Perf comparison vs Lab 6 | **4** | Real table, cold + warm + size, design questions |
 | **Total** | **10** | (bonus lab — no Bonus row) |
 
-> 📝 **No "Bonus Task" in this lab.** Lab 12 is itself a bonus lab — Task 1 + Task 2 *are* the challenge. The lab's full 10 pts contribute toward your bonus-labs grade weight (see the course README).
+> 📝 **No "Bonus Task" in this lab.** Lab 12 is itself a bonus lab — Task 1 + Task 2 *are* the challenge. The lab's full 10 pts contribute toward your bonus-labs grade weight (see the course [README](../README.md)).
 
 ---
 
 ## Common Pitfalls
 
-- 🪤 **`tinygo build` fails on stdlib features** — TinyGo's stdlib is a *subset* of upstream Go. Things like `net/http` don't fully work in WASI. Stick to `os`, `encoding/json`, `time`, `fmt`
-- 🪤 **`go build -o main.wasm -target=js/wasm`** — that's *browser* WASM with the Go runtime + JS glue. Use TinyGo + `-target=wasi` for server-side
-- 🪤 **Spin can't find `main.wasm`** — `source =` in `spin.toml` is relative to the toml file
-- 🪤 **Cold-start measurement noisy** — the first ever Spin start writes caches; warm it once, then measure
-- 🪤 **`time.LoadLocation` fails in TinyGo** — embed tzdata or use UTC + manual offset (Moscow is UTC+3)
-- 🪤 **Docker cold-start measurement includes image pull** — pre-pull on every host; or pin the image as a local-only tag
+- 🪤 **`tinygo build` fails on stdlib features** — TinyGo's stdlib is a *subset* of upstream Go. `net/http` and reflection-heavy code don't fully work in WASI. Stick to `os`, `encoding/json`, `time`, `fmt`
+- 🪤 **`go build -o m.wasm -target=js/wasm`** — that's *browser* WASM (needs the Go runtime + JS glue). Server-side requires TinyGo + WASI
+- 🪤 **Spin can't find `main.wasm`** — `source =` in `spin.toml` is relative to the toml file's directory
+- 🪤 **Cold-start measurement noisy** — first ever Spin start writes caches; warm once before measuring
+- 🪤 **`time.LoadLocation("Europe/Moscow")` fails** in TinyGo — tzdata isn't embedded. Use UTC + manual offset (Moscow is UTC+3), or embed tzdata
+- 🪤 **Docker cold-start measurement includes image pull** — pre-pull once on every host; or pin the image locally
 
 ---
 
 ## Guidelines
 
-- Don't try to port *all* of QuickNotes to WASM — TinyGo's stdlib gaps will frustrate you. One hot endpoint is the lab's scope
-- Cold-start measurements need clean state on each iteration — use `--prepare` in hyperfine if needed
-- The "is WASM-Spin faster?" answer depends on workload — be specific about cold-start vs warm
-- Read [Reading 12](../lectures/reading12.md) first if you haven't
+- Don't try to port *all* of QuickNotes to WASM — TinyGo stdlib gaps will frustrate you. One endpoint is the lab's scope
+- Cold-start measurements need clean state on each iteration — `hyperfine --prepare 'cleanup' --setup 'start'`
+- Read [Reading 12](../lectures/reading12.md) first — the trade-offs table there is the answer key for design questions f and g
+- The "is WASM faster?" answer depends on workload — be specific about cold vs warm
 
 ---
 
 ## Resources
 
-- 📖 [Spin docs](https://developer.fermyon.com/spin)
-- 📖 [TinyGo with WASI](https://tinygo.org/docs/guides/webassembly/wasi/)
+- 📖 [Spin developer docs](https://developer.fermyon.com/spin)
+- 📖 [TinyGo with WASI guide](https://tinygo.org/docs/guides/webassembly/wasi/)
 - 📖 [WAGI README](https://github.com/deislabs/wagi)
-- 📖 [Bytecode Alliance — WASI](https://wasi.dev/)
-- 🎥 [Lin Clark — A cartoon intro to WebAssembly](https://hacks.mozilla.org/2017/02/a-cartoon-intro-to-webassembly/)
+- 📖 [WASI documentation](https://wasi.dev/)
+- 📖 [Bytecode Alliance — WASI Preview 2](https://bytecodealliance.org/articles/wasi-preview-2-launch)
+- 🎥 [Lin Clark — *A cartoon introduction to WebAssembly*](https://hacks.mozilla.org/2017/02/a-cartoon-intro-to-webassembly/)
 - 🛠️ [`hyperfine`](https://github.com/sharkdp/hyperfine), [`wasm2wat`](https://github.com/WebAssembly/wabt)

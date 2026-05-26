@@ -5,225 +5,169 @@
 ![points](https://img.shields.io/badge/points-10%2B2-orange)
 ![tech](https://img.shields.io/badge/tech-Trivy%20%2B%20ZAP-informational)
 
-> **Goal:** Scan the QuickNotes container image with Trivy. Run an OWASP ZAP baseline against the running app. Triage findings; fix at least one. Bonus: integrate `govulncheck` into the Lab 3 CI.
-> **Deliverable:** A PR from `feature/lab9` to the course repo with security artifacts + `submissions/lab9.md`. Submit the PR link via Moodle.
+> **Goal:** Scan the QuickNotes image with Trivy. Run OWASP ZAP baseline against the running app. Triage every finding; fix at least one in code. Bonus: add `govulncheck` to your Lab 3 CI as a PR gate.
+> **Deliverable:** A PR from `feature/lab9` to the course repo with scan artifacts + code fix + `submissions/lab9.md`. Submit the PR link via Moodle.
 
 ---
 
 ## Overview
 
-By the end of this lab you have:
-- A Trivy report against `quicknotes:lab6` with an SBOM
-- A ZAP baseline report against running QuickNotes
-- A demonstrated fix for at least one ZAP-flagged finding (likely missing security headers)
-- (Bonus) `govulncheck` running as part of your Lab 3 CI workflow
+By the end:
+- A **Trivy** report (image, filesystem, config) with every HIGH/CRITICAL triaged
+- A **CycloneDX SBOM** of the QuickNotes image
+- A **ZAP baseline** report; every finding triaged in a written decision (fix / accept / suppress)
+- At least one finding **fixed in code** with the before/after evidence
+- *(Bonus)* `govulncheck` runs in CI as a PR gate
+
+The skill is **triage + decision** — not running tools. Anyone can run a scanner; the value is what you do with the output.
 
 ---
 
 ## Project State
 
-**Starting point:** Lab 6 image exists; Lab 8 monitoring optional but helpful for the dashboard.
+**Starting point:** Lab 6 image exists (`quicknotes:lab6`); Lab 8 stack optional.
 
-**After this lab:** A security gate exists in your CI; the QuickNotes binary has security headers; you can answer "am I affected by CVE-X" via SBOM.
+**After this lab:** Your CI has a security gate; QuickNotes ships with security headers; you can answer "am I affected by CVE-X?" via the SBOM.
 
 ---
 
 ## Prerequisites
 
-- Docker (Lab 6)
-- Lab 3 CI pipeline (for the Bonus)
-- Optionally Lab 8 Compose stack to observe scan-time metrics
+- Lab 6 done (QuickNotes container)
+- Lab 3 CI workflow (for the Bonus)
+- Docker
 
 ---
 
-## Task 1 — Trivy: Image, Filesystem, SBOM (6 pts)
+## Task 1 — Trivy: Image + Filesystem + Config + SBOM (6 pts)
 
-### 1.1: Scan the Lab 6 image
+### 1.1: Required scans
 
-```bash
-docker pull aquasec/trivy:0.59.1   # pin
+Run all four — capture each output:
 
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-  aquasec/trivy:0.59.1 image \
-  --severity HIGH,CRITICAL \
-  --no-progress \
-  quicknotes:lab6 | tee trivy-image.txt
-```
+1. **Image scan** — `trivy image quicknotes:lab6` with `--severity HIGH,CRITICAL`
+2. **Filesystem scan** of your repo — `trivy fs <repo>` with `--severity HIGH,CRITICAL`
+3. **Config scan** — `trivy config <repo>` (scans Dockerfile, compose.yaml, etc. for misconfig)
+4. **SBOM generation** — `trivy sbom --format cyclonedx` on the image, save the JSON
 
-If you get HIGH/CRITICAL findings: read the description, look at fix versions, and write a **disposition** (fix now, accept with reason + date, watch).
+Pin Trivy to a specific version (e.g. `aquasec/trivy:0.59.x`) — not `:latest`.
 
-### 1.2: Scan the repo filesystem
+### 1.2: Triage every HIGH/CRITICAL
 
-```bash
-docker run --rm -v "$PWD:/repo" aquasec/trivy:0.59.1 fs \
-  --severity HIGH,CRITICAL --no-progress /repo | tee trivy-fs.txt
+For **every** HIGH or CRITICAL finding across the three scans, document a **disposition** with a single label + reason in `submissions/lab9.md`:
 
-docker run --rm -v "$PWD:/repo" aquasec/trivy:0.59.1 config /repo | tee trivy-config.txt
-```
+| Label | Means | Required documentation |
+|-------|-------|------------------------|
+| **FIX** | Patch / upgrade now | Link to PR / commit where you fixed it |
+| **ACCEPT** | Risk is acceptable for now | Why it's acceptable + date by when you'd re-evaluate (≤ 6 months) |
+| **WATCH** | Not actionable yet (no upstream fix) | What you're watching + when you'll re-check |
+| **FALSE POSITIVE** | Scanner is wrong | Why it's wrong (with reasoning) |
 
-`trivy fs` reads Go modules + lockfiles. `trivy config` scans your Dockerfile + compose.yaml for misconfig (e.g., running as root, secrets in ENV).
+The discipline is **a decision per finding**, not a yes/no on "did you scan".
 
-### 1.3: Generate an SBOM
+### 1.3: Design questions
 
-```bash
-docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$PWD:/out" aquasec/trivy:0.59.1 sbom \
-  --format cyclonedx \
-  -o /out/quicknotes.sbom.cdx.json \
-  image quicknotes:lab6
-```
+- a) **CVE severity is one input, not the answer.** What else (reachability, exploit availability, deployment context) matters when triaging?
+- b) **Distroless images often show zero HIGH/CRITICAL.** Why is the minimal base the strongest single security control?
+- c) **`.trivyignore`** lets you suppress findings. When is that the right move, and when is it security theater?
+- d) **The SBOM** is a list of components. What concrete *future* problem does having it today solve? (Hint: Log4Shell, Lecture 9.)
 
-You now have a machine-readable inventory of every dependency.
+### 1.4: Where to start
 
-### 1.4: Document
+- 📖 [Trivy quickstart](https://trivy.dev/latest/getting-started/installation/)
+- 📖 [Trivy — supported targets](https://trivy.dev/latest/docs/target/)
+- 📖 [CycloneDX SBOM spec](https://cyclonedx.org/specification/overview/)
+
+### 1.5: Document
 
 In `submissions/lab9.md`:
-- Top of `trivy-image.txt`, `trivy-fs.txt`, `trivy-config.txt`
-- The first 30 lines of `quicknotes.sbom.cdx.json`
-- For *every* HIGH/CRITICAL finding: disposition (fix / accept / watch) + a one-line reason
-- One paragraph: *with this SBOM, if Log4Shell-2 drops tomorrow, how do you check whether QuickNotes is affected?*
+- Top of each of the four scan outputs
+- The triage **table** with every HIGH/CRITICAL + disposition
+- The first 30 lines of your CycloneDX SBOM
+- Design questions a-d answered
 
 ---
 
-## Task 2 — OWASP ZAP Baseline + Fix a Finding (4 pts)
+## Task 2 — OWASP ZAP Baseline + Fix at Least One Finding (4 pts)
 
-### 2.1: Run QuickNotes + ZAP
+### 2.1: Run ZAP baseline
 
-```bash
-docker run -d --rm --name qn -p 8080:8080 quicknotes:lab6
-sleep 2
+Start QuickNotes (from Lab 6), then run `zap-baseline.py` against `http://localhost:8080`. **Do not** run the active scan; baseline is passive only. Save the HTML + JSON report.
 
-docker run --rm \
-  --network host \
-  -v "$PWD:/zap/wrk:rw" \
-  ghcr.io/zaproxy/zaproxy:2.16.0 \
-  zap-baseline.py \
-    -t http://localhost:8080 \
-    -r zap-baseline.html \
-    -J zap-baseline.json \
-    -I    # don't fail the script on findings
-
-docker stop qn
-```
-
-Open `zap-baseline.html` in your browser. Most findings will be missing security headers.
+Pin ZAP to a specific image tag (e.g. `ghcr.io/zaproxy/zaproxy:2.16.x`).
 
 ### 2.2: Triage every finding
 
 For each ZAP finding, document in `submissions/lab9.md`:
 - ID + name
 - Risk level
-- Affected URL
-- Decision: **fix in code**, **accept with reason**, or **suppress with rationale**
+- Affected URL / parameter
+- Disposition (FIX / ACCEPT / SUPPRESS / FALSE POSITIVE) + reason
 
-### 2.3: Add security headers in code
+### 2.3: Pick one finding and fix it in code
 
-Pick at least one finding to **fix in code**. The common winner is missing security headers — implement an HTTP middleware in `app/`:
+The most common ZAP baseline findings are **missing HTTP security headers**. Pick one (or more) and fix it in the QuickNotes Go code:
 
-```go
-// app/middleware.go (new file)
-package main
+Requirements for the fix:
+1. Implement it as **middleware** that wraps the router — don't sprinkle `Header().Set` calls across handlers
+2. Apply to **all** routes (not just `/health`)
+3. Add at least one **unit test** that asserts the header is present on a response
+4. The test must fail if the middleware is removed (so the fix is genuinely guarded)
 
-import "net/http"
+### 2.4: Re-scan and prove the finding is gone
 
-func withSecurityHeaders(h http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("X-Content-Type-Options", "nosniff")
-        w.Header().Set("X-Frame-Options", "DENY")
-        w.Header().Set("Referrer-Policy", "no-referrer")
-        w.Header().Set("Content-Security-Policy", "default-src 'none'")
-        h.ServeHTTP(w, r)
-    })
-}
-```
+Rebuild the image. Re-run `zap-baseline.py`. The finding you fixed should **not** appear in the new report.
 
-Wire it into `main.go`:
+### 2.5: Design questions
 
-```go
-srv := &http.Server{
-    Addr:              addr,
-    Handler:           withSecurityHeaders(server.Routes()),   // ← wrap
-    ReadHeaderTimeout: 5 * time.Second,
-}
-```
+- e) **Why a middleware** and not per-handler header sets?
+- f) **`Content-Security-Policy: default-src 'none'`** is the strictest CSP. What does it break? Why is it OK for QuickNotes (an API) but not for a website?
+- g) **False positives vs accepted findings:** ZAP often flags **informational** issues that aren't real problems. What's the cost of marking them all "accepted" without reading them?
 
-Add a unit test in `handlers_test.go`:
-
-```go
-func TestSecurityHeadersOnHealth(t *testing.T) {
-    srv := newTestServer(t)
-    rec := do(t, srv, http.MethodGet, "/health", nil)
-    if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
-        t.Errorf("missing nosniff header: %q", got)
-    }
-}
-```
-
-> ⚠️ The test above won't pass unless you also call `withSecurityHeaders` in the test setup. Adjust your tests to use a shared handler factory or mount middleware in `Routes()` directly.
-
-### 2.4: Re-scan and verify
-
-Rebuild the image, re-run ZAP. The chosen finding should be **gone** from the report.
-
-### 2.5: Document
+### 2.6: Document
 
 In `submissions/lab9.md`:
-- Triage table for every ZAP finding
-- The code diff for the fix (or link to commit)
-- Before/after ZAP report excerpts showing the finding gone
-- 3-4 sentences: *which findings are real, which are false positives, and what's the cost of a "false alarm"?*
+- Full triage table for every ZAP finding
+- Code diff or PR link for your fix
+- Before/after ZAP report excerpts proving the finding is gone
+- Design questions e, f, g answered
 
 ---
 
-## Bonus Task — `govulncheck` in CI (2 pts)
+## Bonus Task — `govulncheck` as a CI PR Gate (2 pts)
 
-### B.1: Run locally
+### B.1: Goal
 
-```bash
-cd app/
-go install golang.org/x/vuln/cmd/govulncheck@latest
-govulncheck ./...
-```
+Add `govulncheck` to your **Lab 3** CI workflow as a job that blocks the PR if it finds a vulnerability reachable from the QuickNotes call graph.
 
-If clean, deliberately introduce a vulnerable dep to prove the check works:
+### B.2: Requirements
 
-```bash
-# example: add an old, vulnerable yaml.v2
-go get gopkg.in/yaml.v2@2.2.1
-govulncheck ./...    # should report at least one finding
-```
+1. The job runs `govulncheck ./...` against `app/`
+2. The Go version matches the rest of CI (1.24)
+3. `govulncheck` is **pinned** (not `@latest`) — pick a version and reference it
+4. The job has its own status check; failing it blocks the PR
+5. Demonstrate the check **catches** something — temporarily add a known-vulnerable dependency, push, observe red, revert
 
-### B.2: Add to Lab 3 CI
+### B.3: Design questions
 
-Extend `.github/workflows/ci.yml`:
+- h) **Reachability** is `govulncheck`'s key idea. How is "this module has a CVE but we don't call the affected function" different from "this module has a CVE" — and what does that mean for triage workload?
+- i) **`go install golang.org/x/vuln/cmd/govulncheck@<version>`** — why pin the version of the *scanner*, not just `@latest`?
+- j) **govulncheck only knows about Go.** What's it *not* going to catch that Trivy (image scan) would?
 
-```yaml
-  vulncheck:
-    name: govulncheck
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@<SHA>
-      - uses: actions/setup-go@<SHA>
-        with: { go-version: '1.24', cache: true }
-      - working-directory: app
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          $(go env GOPATH)/bin/govulncheck ./...
-```
-
-### B.3: Document
+### B.4: Document
 
 In `submissions/lab9.md`:
-- govulncheck local output (with and without the bad dep)
-- CI run showing govulncheck blocking
-- One paragraph: *how is govulncheck more useful than `trivy fs` for Go projects? (hint: reachability)*
+- Your CI workflow's new job (paste or link)
+- Screenshot or log of the "red" CI run when you introduced the vulnerable dep
+- Screenshot or log of the "green" run after revert
+- Design questions h, i, j answered
 
 ---
 
 ## How to Submit
 
-1. Scan reports (`trivy-*.txt`, `zap-baseline.html`, `quicknotes.sbom.cdx.json`) in your fork
-2. Security-headers code change committed
+1. Scan reports + SBOM committed to your fork (or in submission)
+2. Security-headers code change committed; passing test
 3. `submissions/lab9.md` covers all attempted tasks
 4. PR from `feature/lab9` → course repo's `main`
 5. Submit the PR URL via Moodle
@@ -233,19 +177,21 @@ In `submissions/lab9.md`:
 ## Acceptance Criteria
 
 ### Task 1 (6 pts)
-- ✅ Trivy run on image, fs, and config
-- ✅ SBOM generated (CycloneDX)
+- ✅ All four scans run; output captured
 - ✅ Every HIGH/CRITICAL has a documented disposition
+- ✅ CycloneDX SBOM generated
+- ✅ Design questions a-d answered
 
 ### Task 2 (4 pts)
 - ✅ ZAP baseline run; report saved
-- ✅ All findings triaged in a table
-- ✅ At least one fix landed; before/after evidence
+- ✅ Every finding triaged in a table
+- ✅ ≥ 1 fix landed in code (middleware + test); before/after evidence
+- ✅ Design questions e, f, g answered
 
 ### Bonus Task (2 pts)
-- ✅ govulncheck runs in CI
-- ✅ Demonstrated catching a deliberately-bad dep
-- ✅ Written reachability explanation
+- ✅ `govulncheck` job in CI
+- ✅ Demonstrated catching a bad dep
+- ✅ Design questions h, i, j answered
 
 ---
 
@@ -253,39 +199,41 @@ In `submissions/lab9.md`:
 
 | Task | Points | Criteria |
 |------|-------:|----------|
-| **Task 1** — Trivy scans + SBOM | **6** | All three Trivy modes ran, SBOM produced, dispositions documented |
-| **Task 2** — ZAP triage + code fix | **4** | Findings triaged, ≥1 fix landed, before/after evidence |
-| **Bonus** — govulncheck in CI | **2** | Local + CI working, reachability reasoning |
+| **Task 1** — Trivy scans + SBOM + triage | **6** | All scans + SBOM + per-finding disposition + design questions |
+| **Task 2** — ZAP triage + code fix | **4** | Findings triaged, fix landed, before/after, design questions |
+| **Bonus** — govulncheck CI gate | **2** | Job in CI, caught bad dep, design questions |
 | **Total** | **10 + 2 bonus** | |
 
 ---
 
 ## Common Pitfalls
 
-- 🪤 **Trivy needs internet** — first run downloads the vuln DB (~200 MB)
-- 🪤 **ZAP active scan instead of baseline** — *do not* run `zap-full-scan` against anything you don't own
-- 🪤 **Security headers break clients** — `Content-Security-Policy: default-src 'none'` is *strict*. For QuickNotes (API-only) it's fine; for a real frontend you'd loosen it
-- 🪤 **`govulncheck` says "no vulnerabilities"** — that's the goal; introduce a bad dep to prove the check actually runs
-- 🪤 **`.trivyignore` instead of fixing** — use it for documented accepted findings only, with a date for re-evaluation
-- 🪤 **SBOM committed to Git** — fine for a course; in production, you'd attach it to the release artifact, not the repo
+- 🪤 **Trivy first run is slow** — downloads the vuln DB (~200 MB). Cache it in CI
+- 🪤 **`zap-baseline.py` instead of `zap-full-scan.py`** — baseline is passive and safe; full is active and *can break things*. Never run active against anything you don't own
+- 🪤 **CSP too strict for a real app** — for QuickNotes (API) it's fine; for a website, allowlist what you actually need
+- 🪤 **`.trivyignore` instead of fixing** — only legitimate for documented, dated acceptances
+- 🪤 **`govulncheck` shows "no vulnerabilities"** — that's the *goal*. To prove the check works, deliberately introduce a bad dep
+- 🪤 **Triage table missing** — running scanners without acting on them is the most common DevSecOps theater. Don't fall into it
+- 🪤 **Security headers break clients** — strict CSP can break Swagger UI if you add it later. Test before strict-locking
 
 ---
 
 ## Guidelines
 
-- Treat every finding as a decision: fix, accept, or watch. Document *all three* options for the same finding if relevant
-- Don't dismiss "informational" ZAP findings — many become "high" once you look at them in context (e.g. missing CSP)
-- For govulncheck, the *reachability* analysis is the value: a vulnerable module that your code doesn't actually call is much less urgent than one your hot path touches
-- Document accepted findings with a date — re-evaluate them next semester
+- The lab measures **decision quality**, not scanner output volume
+- For every finding you accept, set a *date* to re-evaluate. Without a date it's a permanent rug-pull
+- The unit test that asserts your security header is present is what separates a "fix" from a "comment"
+- govulncheck reachability vs Trivy module-presence is the most important distinction in this lab
 
 ---
 
 ## Resources
 
-- 📖 [Trivy documentation](https://trivy.dev/)
+- 📖 [Trivy docs](https://trivy.dev/)
 - 📖 [OWASP ZAP docs](https://www.zaproxy.org/docs/)
 - 📖 [OWASP Top 10 — 2021](https://owasp.org/Top10/)
-- 📖 [govulncheck — Go vulnerability checker](https://go.dev/blog/vuln)
+- 📖 [`govulncheck` — official tutorial](https://go.dev/blog/vuln)
+- 📖 [Mozilla — Web Security guidelines](https://infosec.mozilla.org/guidelines/web_security)
 - 📝 [Log4Shell incident summary (Sonatype)](https://blog.sonatype.com/log4shell-vulnerability-the-first-30-days)
 - 📝 [Equifax 2017 — GAO report](https://www.gao.gov/products/gao-18-559)
-- 🛠️ Optional tools: Syft, Grype, gitleaks, trufflehog
+- 🛠️ Optional: Syft (SBOM), Grype (vuln scan), gitleaks, trufflehog
