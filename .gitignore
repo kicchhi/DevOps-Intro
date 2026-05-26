@@ -1,8 +1,6 @@
-# Student-produced artifacts — NOT part of the course repo.
-# These live in a student's fork of the course, not upstream.
-
-# Student submission directory (students submit via Moodle/link, not git)
-submissions/
+# Student-produced artifacts
+# (`submissions/labN.md` IS committed by students to their fork's
+#  PR — do NOT ignore it. `refs/` is instructor-only dry-run output.)
 
 # Instructor-only reference submissions (dry-run results, not student deliverables)
 refs/
