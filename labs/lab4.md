@@ -1,209 +1,275 @@
-# Lab 4 — Operating Systems & Networking
+# Lab 4 — OS & Networking: Trace, Debug, and Read the Substrate
 
 ![difficulty](https://img.shields.io/badge/difficulty-beginner-success)
-![topic](https://img.shields.io/badge/topic-OS%20%26%20Networking-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![topic](https://img.shields.io/badge/topic-OS%20%2B%20Networking-blue)
+![points](https://img.shields.io/badge/points-10%2B2-orange)
+![tech](https://img.shields.io/badge/tech-Linux%20%2B%20Go-informational)
 
-> **Goal:** Analyze operating system fundamentals and conduct network diagnostics to develop core DevOps infrastructure skills.  
-> **Deliverable:** A PR from `feature/lab4` to the course repo with `labs/submission4.md` containing command outputs, analysis, and observations. Submit the PR link via Moodle.
+> **Goal:** Use `ss`, `dig`, `tcpdump`, `curl -v`, and `journalctl` to deeply understand what happens when a single `POST /notes` flies across the network into QuickNotes.
+> **Deliverable:** A PR from `feature/lab4` to the course repo with `submissions/lab4.md`. Submit the PR link via Moodle.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Analyzing OS components: boot performance, resource usage, services, sessions, and memory management.
-- Performing network diagnostics: path tracing, DNS inspection, packet capture, and reverse lookups.
-- Documenting system analysis findings with proper security considerations.
+Every prior incident in this course (Knight Capital, Facebook BGP, AWS us-east-1) had a substrate-layer failure mode. This lab makes the substrate visible:
+- Capture and analyze real TCP packets to QuickNotes
+- Walk an outside-in debugging chain on a deliberately-broken instance
+- Build the muscle memory for "what's actually happening" at L3/L4/L7
 
 ---
 
-## Tasks
+## Project State
 
-### Task 1 — Operating System Analysis (6 pts)
+**Starting point:** QuickNotes runs locally on `:8080`; tools installed.
 
-**Objective:** Analyze key OS components including boot performance, resource usage, services, sessions, and memory management.
-
-#### 1.1: Boot Performance Analysis
-
-1. **Analyze System Boot Time:**
-
-   ```sh
-   systemd-analyze
-   systemd-analyze blame
-   ```
-
-2. **Check System Load:**
-
-   ```sh
-   uptime
-   w
-   ```
-
-#### 1.2: Process Forensics
-
-1. **Identify Resource-Intensive Processes:**
-
-   ```sh
-   ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head -n 6
-   ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -n 6
-   ```
-
-#### 1.3: Service Dependencies
-
-1. **Map Service Relationships:**
-
-   ```sh
-   systemctl list-dependencies
-   systemctl list-dependencies multi-user.target
-   ```
-
-#### 1.4: User Sessions
-
-1. **Audit Login Activity:**
-
-   ```sh
-   who -a
-   last -n 5
-   ```
-
-#### 1.5: Memory Analysis
-
-1. **Inspect Memory Allocation:**
-
-   ```sh
-   free -h
-   cat /proc/meminfo | grep -e MemTotal -e SwapTotal -e MemAvailable
-   ```
-
-In `labs/submission4.md`, document:
-- All command outputs for sections 1.1-1.5.
-- Key observations for each analysis section.
-- Answer: "What is the top memory-consuming process?"
-- Note any resource utilization patterns you observe.
+**After this lab:** You have a packet capture, a complete annotated debug trace, and (Bonus) a decoded TLS handshake.
 
 ---
 
-### Task 2 — Networking Analysis (4 pts)
+## Prerequisites
 
-**Objective:** Perform network diagnostics including path tracing, DNS inspection, packet capture, and reverse lookups.
+- Linux or macOS terminal (Windows: use WSL2 for `tcpdump` + `ss`)
+- Install: `tcpdump`, `iproute2` (provides `ss`, `ip`), `dnsutils` (provides `dig`, `host`), `mtr`, `htop`, `jq`
+- Wireshark optional but useful (Bonus)
+- `sudo` on your host machine (for `tcpdump`)
 
-#### 2.1: Network Path Tracing
+---
 
-1. **Traceroute Execution:**
+## Task 1 — Trace a Request End-to-End (6 pts)
 
-   ```sh
-   traceroute github.com
-   ```
+### 1.1: Start QuickNotes + capture
 
-2. **DNS Resolution Check:**
+In terminal A:
 
-   ```sh
-   dig github.com
-   ```
+```bash
+cd app/
+go run .
+```
 
-#### 2.2: Packet Capture
+In terminal B:
 
-1. **Capture DNS Traffic:**
+```bash
+sudo tcpdump -i lo -nn -s 0 -A 'tcp port 8080' -w lab4-trace.pcap &
+TCPDUMP_PID=$!
+```
 
-   ```sh
-   sudo timeout 10 tcpdump -c 5 -i any 'port 53' -nn
-   ```
+In terminal C, fire one request:
 
-   <details>
-   <summary>🔍 Understanding tcpdump flags</summary>
+```bash
+curl -v -X POST http://localhost:8080/notes \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"trace me","body":"in flight"}'
+```
 
-   - `-c 5`: Capture 5 packets
-   - `-i any`: Listen on all interfaces
-   - `port 53`: Filter for DNS traffic
-   - `-nn`: Don't resolve hostnames/ports (faster)
+Stop the capture:
 
-   </details>
+```bash
+sudo kill $TCPDUMP_PID
+wait $TCPDUMP_PID 2>/dev/null
+```
 
-#### 2.3: Reverse DNS
+### 1.2: Decode the capture
 
-1. **Perform PTR Lookups:**
+```bash
+# show packets in human format
+sudo tcpdump -r lab4-trace.pcap -nn -A | tee lab4-trace.txt
+```
 
-   ```sh
-   dig -x 8.8.4.4
-   dig -x 1.1.2.2
-   ```
+Identify in the capture:
+- The TCP three-way handshake (SYN → SYN/ACK → ACK)
+- The HTTP request line (`POST /notes HTTP/1.1`) + the JSON body
+- The HTTP response line (`HTTP/1.1 201 Created`) + the response JSON
+- The connection close (`FIN` or `RST`)
 
-In `labs/submission4.md`, document:
-- All command outputs for sections 2.1-2.3.
-- Insights on network paths discovered.
-- Analysis of DNS query/response patterns.
-- Comparison of reverse lookup results.
-- One example DNS query from packet capture (sanitize IPs if needed).
+### 1.3: Run the five debugging commands
+
+For each, capture the output:
+
+```bash
+ss -tlnp   | grep :8080         # 1. what's listening?
+ip route show                    # 2. routes from your host
+mtr -rwc 5 localhost             # 3. reachability (loop on lo)
+dig +short example.com @1.1.1.1  # 4. DNS works
+journalctl --user -u quicknotes -n 20 || true  # 5. logs (if installed as service)
+```
+
+### 1.4: Document in `submissions/lab4.md`
+
+- The annotated `lab4-trace.txt` (highlight handshake, HTTP req/resp, close)
+- All five command outputs from 1.3
+- One paragraph: *what would you check first if QuickNotes returned 502?*
+
+---
+
+## Task 2 — Outside-In Debugging on a Broken Deploy (4 pts)
+
+A deliberately-broken QuickNotes branch is provided. Run it under `systemd-run --user` (or just `bash` with manual env vars), then debug it.
+
+### 2.1: Run a broken instance
+
+```bash
+cd app/
+# break it: bind to a port that's already taken
+ADDR=:8080 go run . &
+PID1=$!
+sleep 1
+ADDR=:8080 go run . 2>&1 | tee /tmp/qn-broken.log &
+PID2=$!
+sleep 2
+
+# Use whichever you see — one process or both:
+ps -ef | grep "go run" | grep -v grep
+```
+
+The second one should have failed to bind. Capture the exact error.
+
+### 2.2: Walk the outside-in chain
+
+For each of these steps, document command + output + decision:
+
+```bash
+# 1) systemctl-style: is it running?
+ps -ef | grep quicknotes
+
+# 2) is it listening?
+ss -tlnp | grep 8080
+
+# 3) reachable from host?
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/health
+
+# 4) firewall blocking?
+sudo iptables -L -n -v 2>/dev/null || sudo nft list ruleset 2>/dev/null || true
+
+# 5) DNS?
+dig +short localhost
+```
+
+### 2.3: Repair + re-verify
+
+Kill the conflicting first instance:
+
+```bash
+kill $PID1
+sleep 1
+ADDR=:8080 go run . &
+sleep 1
+curl -s http://localhost:8080/health
+```
+
+### 2.4: Document
+
+In `submissions/lab4.md`:
+- The full outside-in chain with the exact commands you ran
+- The root cause (`bind: address already in use`)
+- A mini-postmortem (≤ 200 words) framed blamelessly: what's *systemic* about this kind of failure, and what tooling could prevent it?
+
+---
+
+## Bonus Task — Decode the TLS Handshake (2 pts)
+
+QuickNotes runs HTTP only — for this Bonus you'll point a TLS-terminating proxy at it.
+
+### B.1: Add an HTTPS layer
+
+Quickest path — use the public Caddy automatic-HTTPS reverse proxy with a self-signed local cert:
+
+```bash
+# install Caddy (linux):
+sudo apt install caddy
+
+# minimal Caddyfile in /etc/caddy/Caddyfile:
+echo 'localhost:8443 {
+  reverse_proxy localhost:8080
+}' | sudo tee /etc/caddy/Caddyfile
+
+sudo systemctl restart caddy
+```
+
+### B.2: Capture the TLS handshake
+
+```bash
+sudo tcpdump -i lo -nn -s 0 -w lab4-tls.pcap 'tcp port 8443' &
+TCPDUMP_PID=$!
+
+curl -vk https://localhost:8443/health
+
+sudo kill $TCPDUMP_PID; wait $TCPDUMP_PID 2>/dev/null
+```
+
+### B.3: Decode with Wireshark
+
+Open `lab4-tls.pcap` in Wireshark. Find the **ClientHello** and **ServerHello** packets. Capture screenshots of:
+- ClientHello showing TLS version, cipher suites offered, SNI
+- ServerHello showing chosen cipher + TLS version
+- The certificate chain shown by `openssl s_client -connect localhost:8443 -showcerts </dev/null`
+
+In `submissions/lab4.md`, annotate one screenshot: *which negotiation step kills TLS 1.0 / 1.1 in 2026?*
 
 ---
 
 ## How to Submit
 
-1. Create a branch for this lab and push it to your fork:
-
-   ```bash
-   git switch -c feature/lab4
-   # create labs/submission4.md with your findings
-   git add labs/submission4.md
-   git commit -m "docs: add lab4 submission"
-   git push -u origin feature/lab4
-   ```
-
-2. Open a PR from your fork's `feature/lab4` branch → **course repository's main branch**.
-
-3. In the PR description, include:
-
-   ```text
-   - [x] Task 1 done
-   - [x] Task 2 done
-   ```
-
-4. **Copy the PR URL** and submit it via **Moodle before the deadline**.
+1. `submissions/lab4.md` covers all attempted tasks
+2. Include `lab4-trace.txt` (or excerpts) in your submission
+3. PR from `feature/lab4` → course repo's `main`
+4. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab4` exists with commits for each task.
-- ✅ File `labs/submission4.md` contains required outputs and analysis for Tasks 1-2.
-- ✅ All sensitive information (IPs, process names) is properly sanitized in documentation.
-- ✅ PR from `feature/lab4` → **course repo main branch** is open.
-- ✅ PR link submitted via Moodle before the deadline.
+### Task 1 (6 pts)
+- ✅ Packet capture exists; you can identify the TCP handshake, HTTP request, HTTP response, connection close
+- ✅ All five debugging commands produced sensible output
+- ✅ Written 502-debug reflection (one paragraph)
+
+### Task 2 (4 pts)
+- ✅ Broken deploy reproduced; root cause identified
+- ✅ Outside-in chain documented with command + output + decision at each step
+- ✅ Blameless mini-postmortem (≤ 200 words)
+
+### Bonus Task (2 pts)
+- ✅ TLS handshake captured and decoded
+- ✅ ClientHello + ServerHello + cert chain documented
+- ✅ TLS 1.0/1.1 deprecation reasoning included
 
 ---
 
-## Rubric (10 pts)
+## Rubric
 
-| Criterion                                    | Points |
-| -------------------------------------------- | -----: |
-| Task 1 — Operating system analysis           |   **6** |
-| Task 2 — Networking analysis                 |   **4** |
-| **Total**                                    |  **10** |
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — Trace request, debug commands | **6** | Packet capture annotated, 5 commands with output, 502 reflection |
+| **Task 2** — Outside-in debugging | **4** | Broken instance reproduced, chain walked, mini-postmortem |
+| **Bonus** — TLS handshake decode | **2** | Capture + Wireshark screenshots + cert chain |
+| **Total** | **10 + 2 bonus** | |
+
+---
+
+## Common Pitfalls
+
+- 🪤 **`tcpdump: permission denied`** — use `sudo`; on Linux, the `pcap` group avoids this for power users
+- 🪤 **`-i lo` shows nothing** — your traffic might be going via a different interface (Docker bridge, eth0). Try `tcpdump -i any` instead
+- 🪤 **`ss -tlnp` shows no process name** — needs `sudo` to see PIDs you don't own
+- 🪤 **Caddy refuses to start** — port 80 or 443 already taken by another process; pick custom ports
+- 🪤 **Wireshark can't open `.pcap`** — capture as root, then `sudo chown $USER lab4-trace.pcap` before opening
+- 🪤 **"It's never DNS" — until it is** — keep `dig` muscle memory; you'll need it for years
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission4.md`.
-- Include both command outputs and written analysis for each task.
-- For packet capture, document at least one DNS query example.
-- Sanitize sensitive information: replace last octet of IPs with XXX, avoid sensitive process names.
+- Capture once, analyze offline (`.pcap` files are reusable) — don't re-trigger the bug to look again
+- For every debugging step, write down *why* you ran the command — not just what you ran
+- Treat the bonus TLS exercise as preparation for Lab 9 (DevSecOps) — same handshake, different framing
 
-<details>
-<summary>🔒 Security Best Practices</summary>
+---
 
-1. Sanitize IPs in packet capture outputs (replace last octet with XXX).
-2. Avoid including sensitive process names in documentation.
-3. Do not expose internal network topology details publicly.
+## Resources
 
-</details>
-
-<details>
-<summary>📚 Helpful Resources</summary>
-
-- [systemd-analyze man page](https://www.freedesktop.org/software/systemd/man/systemd-analyze.html)
-- [tcpdump tutorial](https://danielmiessler.com/study/tcpdump/)
-- [dig command examples](https://linux.die.net/man/1/dig)
-
-</details>
+- 📖 [Brendan Gregg — Linux Performance](https://www.brendangregg.com/linuxperf.html) — the diagram is essential
+- 📖 [tcpdump tutorial — Daniel Miessler](https://danielmiessler.com/p/tcpdump/)
+- 📖 [Cloudflare's blog on the 2021 Facebook outage](https://blog.cloudflare.com/october-2021-facebook-outage/)
+- 📖 [Wireshark User's Guide](https://www.wireshark.org/docs/wsug_html_chunked/)
+- 🛠️ Tools cheat sheet: `ss`, `ip`, `dig`, `host`, `tcpdump`, `mtr`, `lsof -i`, `journalctl`

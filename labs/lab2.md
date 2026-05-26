@@ -1,344 +1,248 @@
-# Lab 2 — Version Control & Advanced Git
+# Lab 2 — Version Control Deep Dive: Internals, Recovery, Rebase
 
 ![difficulty](https://img.shields.io/badge/difficulty-beginner-success)
-![topic](https://img.shields.io/badge/topic-Git%20%26%20Version%20Control-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![topic](https://img.shields.io/badge/topic-Git%20Internals-blue)
+![points](https://img.shields.io/badge/points-10%2B2-orange)
+![tech](https://img.shields.io/badge/tech-Git%202.49%2B-informational)
 
-> **Goal:** Deepen Git fundamentals: object model, reset/reflog, history visualization, tagging, and modern commands (`git switch`/`git restore`).  
-> **Deliverable:** A PR from `feature/lab2` to the course repo with `labs/submission2.md` including outputs and brief explanations for each task. Submit the PR link via Moodle.
+> **Goal:** Open the hood on Git's object model on the QuickNotes repo. Practice recovery from a `--hard` reset. Tag a release. Rebase a feature branch onto `main`.
+> **Deliverable:** A PR from `feature/lab2` to the course repo with `submissions/lab2.md`. Submit the PR link via Moodle.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Inspecting Git's object model with `git cat-file`.
-- Recovering work with `git reset` and `git reflog` safely.
-- Visualizing history and branches with `git log --graph`.
-- Tagging commits for releases.
-- Using modern commands: `git switch` and `git restore` vs `git checkout`.
+This lab makes Git's plumbing visible. You'll:
+- Inspect blobs, trees, and commits in your QuickNotes fork
+- Force a destructive `--hard` reset and recover via reflog
+- Create an annotated, signed release tag
+- Rebase a feature branch and squash its history
 
 ---
 
-## Tasks
+## Project State
 
-### Task 1 — Git Object Model Exploration (2 pts)
+**Starting point:** QuickNotes runs locally; Lab 1 PR merged or in review.
 
-**Objective:** Understand how Git stores data as blobs, trees, and commits.
+**After this lab:** A signed annotated tag `v0.1.0-lab2-USER` exists; your feature branch has been rebased and pushed; you've recovered a "lost" commit.
 
-#### 1.1: Create Sample Commits
+---
 
-1. **Make Sample Commits:**
+## Prerequisites
 
-   ```sh
-   # Create a few test commits for analysis
-   echo "Test content" > test.txt
-   git add test.txt
-   git commit -m "Add test file"
-   ```
+- Git **2.49+** (`git switch`, `git restore`, `git maintenance` available)
+- Lab 1 completed — your fork is set up with SSH signing
+- A clean working tree on `main`
 
-#### 1.2: Inspect Git Objects
+---
 
-<details>
-<summary>🔍 How to find object hashes</summary>
+## Task 1 — Git Object Model + Reflog Recovery (6 pts)
 
-```sh
-# Get commit hash
-git log --oneline -1
+### 1.1: Explore your repo's plumbing
 
-# Get tree hash from commit
-git cat-file -p HEAD
-
-# Get blob hash from tree
-git cat-file -p <tree_hash>
+```bash
+cd DevOps-Intro
+git rev-parse HEAD
+git cat-file -t HEAD         # commit
+git cat-file -p HEAD          # see tree SHA, parent SHA, author
+# pick a tree SHA from the output:
+git cat-file -p <TREE_SHA>    # see blob SHAs for each file
+# pick a blob SHA:
+git cat-file -p <BLOB_SHA>    # actual file contents
 ```
 
-</details>
+In your submission: paste each step's output for one chain (`HEAD` → tree → blob → file).
 
-1. **Examine Git Objects:**
+### 1.2: Look inside `.git/`
 
-   ```sh
-   # Replace with real object IDs from your repo
-   git cat-file -p <blob_hash>
-   git cat-file -p <tree_hash>
-   git cat-file -p <commit_hash>
-   ```
-
-In `labs/submission2.md`, document:
-- All command outputs for object inspection.
-- A 1–2 sentence explanation of what each object type represents.
-- Analysis of how Git stores repository data.
-- Example of blob, tree, and commit object content.
-
----
-
-### Task 2 — Reset and Reflog Recovery (2 pts)
-
-**Objective:** Practice using `git reset` variants and `git reflog` to navigate history.
-
-#### 2.1: Create Practice Branch
-
-1. **Set Up Practice Environment:**
-
-   ```sh
-   git switch -c git-reset-practice
-   echo "First commit" > file.txt && git add file.txt && git commit -m "First commit"
-   echo "Second commit" >> file.txt && git add file.txt && git commit -m "Second commit"
-   echo "Third commit"  >> file.txt && git add file.txt && git commit -m "Third commit"
-   ```
-
-#### 2.2: Explore Reset Modes
-
-1. **Test Different Reset Options:**
-
-   ```sh
-   git reset --soft HEAD~1   # move HEAD; keep index & working tree
-   git reset --hard HEAD~1   # move HEAD; discard index & working tree
-   git reflog                # view HEAD movement
-   git reset --hard <reflog_hash>  # recover a previous state
-   ```
-
-In `labs/submission2.md`, document:
-- The exact commands you ran and why.
-- Snippets of `git log --oneline` and `git reflog`.
-- What changed in the working tree, index, and history for each reset.
-- Analysis of recovery process using reflog.
-
----
-
-### Task 3 — Visualize Commit History (2 pts)
-
-**Objective:** Use Git's log graph to see branching and merges.
-
-1. **Create a short-lived branch, commit, then view the graph:**
-
-   ```sh
-   git switch -c side-branch
-   echo "Branch commit" >> history.txt
-   git add history.txt && git commit -m "Side branch commit"
-   git switch -
-   git log --oneline --graph --all
-   ```
-
-In `labs/submission2.md`, document:
-- A snippet/screenshot of the graph.
-- Commit messages list.
-- A 1–2 sentence reflection on how the graph aids understanding.
-
----
-
-### Task 4 — Tagging Commits (1 pt)
-
-**Objective:** Create and push lightweight tags to mark releases.
-
-1. **Tag the latest commit and push:**
-
-   ```sh
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-
-2. Optionally make one more commit and tag `v1.1.0`.
-
-In `labs/submission2.md`, document:
-- Tag names and commands used.
-- Associated commit hashes.
-- A short note on why tags matter (versioning, CI/CD triggers, release notes).
-
----
-
-### Task 5 — git switch vs git checkout vs git restore (2 pts)
-
-**Objective:** Learn modern Git commands and when to use each.
-
-<details>
-<summary>🔄 Option A: git switch (Modern - Recommended)</summary>
-
-```sh
-git switch -c cmd-compare   # create and switch
-git switch -                # toggle back to previous branch
+```bash
+ls -la .git/                       # high-level
+cat .git/HEAD                      # ref: refs/heads/...
+ls .git/refs/heads/                # branches
+ls .git/objects/ | head            # subdirs by first 2 SHA chars
+find .git/objects -type f | wc -l  # how many loose objects?
 ```
 
-**Purpose:** Branch switching only (clear and focused)
+Document what you see in `submissions/lab2.md` with a short interpretation.
 
-</details>
+### 1.3: Simulate disaster + recover
 
-<details>
-<summary>🔄 Option B: git checkout (Legacy - Overloaded)</summary>
+```bash
+git switch -c feature/lab2
+echo "important work" > submissions/lab2.md
+git add submissions/lab2.md
+git commit -S -s -m "wip(lab2): start"
+echo "more important work" >> submissions/lab2.md
+git commit -S -s -am "wip(lab2): more progress"
 
-```sh
-git checkout -b cmd-compare-2   # also creates + switches branches
-# Note: `git checkout -- <file>` used to restore files (confusing!).
+# now do something stupid
+git reset --hard HEAD~2
+
+git status            # everything is "gone"
+git log --oneline     # nothing
+git reflog            # 🎉 your commits are still here
 ```
 
-**Problem:** Does too many things - branches AND files
+Restore the most recent commit:
 
-</details>
-
-<details>
-<summary>📂 git restore (Modern - File Operations)</summary>
-
-```sh
-echo "scratch" >> demo.txt
-git restore demo.txt                 # discard working tree changes
-git restore --staged demo.txt        # unstage (keep working tree)
-git restore --source=HEAD~1 demo.txt # restore from another commit
+```bash
+# pick the SHA from `git reflog`
+git reset --hard <SHA>
+git status            # everything's back
 ```
 
-**Purpose:** File restoration only (clear and focused)
-
-</details>
-
-In `labs/submission2.md`, document:
-- Commands you ran and their outputs.
-- `git status`/`git branch` outputs showing state changes.
-- 2–3 sentences on when to use each command.
+Capture:
+- The `git reflog` output (showing the chain of HEAD movements)
+- The recovery `git reset --hard <SHA>` command and its output
+- A 2-3 sentence explanation: *what would happen if `git gc` had run between the bad reset and your recovery?*
 
 ---
 
-### Task 6 — GitHub Community Engagement (1 pt)
+## Task 2 — Tag a Release & Rebase a Feature (4 pts)
 
-**Objective:** Explore GitHub's social features that support collaboration and discovery.
+### 2.1: Annotated, signed release tag
 
-**Actions Required:**
-1. **Star** the course repository
-2. **Star** the [simple-container-com/api](https://github.com/simple-container-com/api) project — a promising open-source tool for container management
-3. **Follow** your professor and TAs on GitHub:
-   - Professor: [@Cre-eD](https://github.com/Cre-eD)
-   - TA: [@marat-biriushev](https://github.com/marat-biriushev)
-   - TA: [@pierrepicaud](https://github.com/pierrepicaud)
-4. **Follow** at least 3 classmates from the course
+```bash
+git switch main
+git pull --ff-only upstream main
+git tag -a -s "v0.1.0-lab2-${USER}" -m "Lab 2 milestone — version control deep dive"
+git push origin "v0.1.0-lab2-${USER}"
+```
 
-**Document in labs/submission2.md:**
+Confirm the tag is annotated **and** signed:
 
-Add a "GitHub Community" section (after Challenges & Solutions) with 1-2 sentences explaining:
-- Why starring repositories matters in open source
-- How following developers helps in team projects and professional growth
+```bash
+git tag -l --format='%(refname:short) %(objecttype) %(*objecttype)'
+# expected: v0.1.0-lab2-USER tag commit
+git tag -v "v0.1.0-lab2-${USER}"   # verifies signature; "Good" expected
+```
 
-<details>
-<summary>💡 GitHub Social Features</summary>
+### 2.2: Rebase + force-with-lease
 
-**Why Stars Matter:**
+While you were working on `feature/lab2`, simulate upstream moving:
 
-**Discovery & Bookmarking:**
-- Stars help you bookmark interesting projects for later reference
-- Star count indicates project popularity and community trust
-- Starred repos appear in your GitHub profile, showing your interests
+```bash
+git switch main
+git commit -S -s --allow-empty -m "docs: upstream moved while you worked"
+git push origin main
 
-**Open Source Signal:**
-- Stars encourage maintainers (shows appreciation)
-- High star count attracts more contributors
-- Helps projects gain visibility in GitHub search and recommendations
+git switch feature/lab2
+git fetch origin
+git rebase origin/main            # replay your two commits on top
+# resolve conflicts if any
+git push --force-with-lease origin feature/lab2
+```
 
-**Professional Context:**
-- Shows you follow best practices and quality projects
-- Indicates awareness of industry tools and trends
+> 💡 **Always `--force-with-lease`, never plain `--force`** — Lecture 2 explained why.
 
-**Why Following Matters:**
+### 2.3: Document
 
-**Networking:**
-- See what other developers are working on
-- Discover new projects through their activity
-- Build professional connections beyond the classroom
+In `submissions/lab2.md`:
+- The signed tag verification output
+- Your branch's `git log --oneline --graph` before and after rebase
+- A brief reflection on *when* you'd choose merge vs rebase
 
-**Learning:**
-- Learn from others' code and commits
-- See how experienced developers solve problems
-- Get inspiration for your own projects
+---
 
-**Collaboration:**
-- Stay updated on classmates' work
-- Easier to find team members for future projects
-- Build a supportive learning community
+## Bonus Task — Bisect a Real Bug (2 pts)
 
-**Career Growth:**
-- Follow thought leaders in your technology stack
-- See trending projects in real-time
-- Build visibility in the developer community
+QuickNotes ships with a deliberately broken commit on a branch called `bug/bisect-me` (created for this lab). Find the offending commit with `git bisect`.
 
-**GitHub Best Practices:**
-- Star repos you find useful (not spam)
-- Follow developers whose work interests you
-- Engage meaningfully with the community
-- Your GitHub activity shows employers your interests and involvement
+### B.1: Set up bisect
 
-</details>
+```bash
+git fetch upstream
+git switch -c bisect-quickn upstream/bug/bisect-me
+git bisect start
+git bisect bad  HEAD               # current state is broken
+git bisect good v0.0.1             # known-good earlier tag
+```
+
+At each step Git checks out a commit halfway. Build and test:
+
+```bash
+cd app/
+go build ./...        # if build fails: `git bisect bad`
+go test ./...         # if any test fails: `git bisect bad`; else `git bisect good`
+```
+
+### B.2: Automate it
+
+```bash
+git bisect run sh -c 'cd app && go test ./... && go build ./...'
+# Git iterates automatically; reports the first bad commit
+git bisect reset
+```
+
+### B.3: Document
+
+- Paste the full `git bisect log`
+- Show the offending commit's SHA + message
+- Write 3-4 sentences explaining how bisect found it in `log₂(N)` steps
 
 ---
 
 ## How to Submit
 
-1. Create a branch for this lab and push it:
-
-   ```bash
-   git switch -c feature/lab2
-   # add labs/submission2.md with your findings
-   git add labs/submission2.md
-   git commit -m "docs: add lab2 submission"
-   git push -u origin feature/lab2
-   ```
-
-2. Open a PR from your fork's `feature/lab2` branch → **course repository's main branch**.
-
-3. In the PR description, include:
-
-   ```text
-   - [x] Task 1 done
-   - [x] Task 2 done
-   - [x] Task 3 done
-   - [x] Task 4 done
-   - [x] Task 5 done
-   - [x] Task 6 done
-   ```
-
-4. **Copy the PR URL** and submit it via **Moodle before the deadline**.
+1. `submissions/lab2.md` contains output + analysis for Tasks 1, 2, and (if attempted) Bonus
+2. Push `feature/lab2` to your fork
+3. Open a PR from `feature/lab2` → course repo's `main`
+4. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab2` exists with commits for each task.
-- ✅ File `labs/submission2.md` contains required outputs/explanations for Tasks 1–6.
-- ✅ A tag (e.g., `v1.0.0`) is created locally and pushed to origin.
-- ✅ PR from `feature/lab2` → **course repo main branch** is open.
-- ✅ PR link submitted via Moodle before the deadline.
+### Task 1 (6 pts)
+- ✅ One full chain explored (`HEAD` → tree → blob → file)
+- ✅ Reflog output captured, recovery successful
+- ✅ Short explanation of the gc-window risk
+
+### Task 2 (4 pts)
+- ✅ Signed annotated tag exists on origin
+- ✅ `git tag -v` shows "Good" signature
+- ✅ Branch rebased; `git log --oneline --graph` before/after captured
+
+### Bonus Task (2 pts)
+- ✅ `git bisect log` captured
+- ✅ Offending commit identified with SHA + message
+- ✅ Reasoning about log₂(N) efficiency
 
 ---
 
-## Rubric (10 pts)
+## Rubric
 
-| Criterion                                   | Points |
-| ------------------------------------------- | -----: |
-| Task 1 — Object model exploration           |   **2**|
-| Task 2 — Reset and reflog recovery          |   **2**|
-| Task 3 — History visualization              |   **2**|
-| Task 4 — Tagging commits                    |   **1**|
-| Task 5 — switch vs checkout vs restore      |   **2**|
-| Task 6 — GitHub community engagement        |   **1**|
-| **Total**                                   |  **10**|
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — Object model + reflog recovery | **6** | All plumbing chain steps, reflog evidence, recovery + gc reflection |
+| **Task 2** — Signed tag + rebase | **4** | Signed annotated tag, before/after rebase logs, merge-vs-rebase reflection |
+| **Bonus** — `git bisect` | **2** | Bisect log, bug commit identified, log₂(N) explanation |
+| **Total** | **10 + 2 bonus** | |
+
+---
+
+## Common Pitfalls
+
+- 🪤 **`reset --hard` without committing first** — your *uncommitted* edits really *are* gone (reflog only saves committed work). Always check `git status` first
+- 🪤 **`tag -v` says "no signature"** — you used `git tag NAME` instead of `git tag -a -s NAME -m "..."`
+- 🪤 **Rebase conflicts** — resolve, then `git rebase --continue`. Never `git rebase --skip` unless you know what you're skipping
+- 🪤 **Force-push wipes someone's commits** — that's why we use `--force-with-lease`. If you see the rejection message, `git fetch` and rebase again
+- 🪤 **`git gc` ran during recovery** — the 30-day reflog default kept you safe, but in CI environments aggressive gc can be configured. **Capture the SHA *first*, then experiment**
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission2.md`.
-- Include both command outputs and written analysis for each task.
-- Use clear commit messages and keep screenshots/snippets concise.
-- Organize files under `labs/` and name them predictably.
+- Show *commands you ran* + *output you got* in the submission, not paraphrased descriptions
+- For rebase, the diff between branches should be clean — no accidental upstream commits in `feature/lab2`
+- Bisect is the kind of skill that *prevents* hours of grep-driven debugging when something regresses
 
-<details>
-<summary>📚 References</summary>
+---
 
-- [Git Documentation](https://git-scm.com/doc)
-- [Pro Git Book](https://git-scm.com/book/en/v2)
+## Resources
 
-</details>
-
-<details>
-<summary>💡 Git Command Tips</summary>
-
-1. Prefer `git switch`/`git restore` over legacy `git checkout` for clarity.
-2. Always check `git status` after reset operations to understand the state.
-3. Use `git reflog` for recovery when commits seem lost.
-
-</details>
+- 📕 *Pro Git* — Chacon & Straub — Chapters 7 (Customizing Git) and 10 (Git Internals)
+- 📗 [Git Magic — Ben Lynn](https://www-cs-students.stanford.edu/~blynn/gitmagic/) — short, free
+- 📘 [Git from the Bottom Up — John Wiegley](https://jwiegley.github.io/git-from-the-bottom-up/)
+- 🎥 [Linus Torvalds — *Linux Foundation talk on Git*](https://www.youtube.com/watch?v=4XpnKHJAok8)
+- 📝 [Git reflog documentation](https://git-scm.com/docs/git-reflog)

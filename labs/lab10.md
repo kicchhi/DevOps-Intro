@@ -1,213 +1,292 @@
-# Lab 10 — Cloud Computing Fundamentals
+# Lab 10 — Cloud Computing: Ship QuickNotes to a Real Cloud
 
-![difficulty](https://img.shields.io/badge/difficulty-beginner-success)
-![topic](https://img.shields.io/badge/topic-Cloud%20Computing-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
+![topic](https://img.shields.io/badge/topic-Cloud%20%2B%20Serverless-blue)
+![points](https://img.shields.io/badge/points-10%2B2-orange)
+![tech](https://img.shields.io/badge/tech-Cloud%20Run%20%2F%20Fly.io-informational)
 
-> **Goal:** Research and compare artifact registries and serverless computing platforms across major cloud providers (AWS, GCP, Azure).  
-> **Deliverable:** A PR from `feature/lab10` to the course repo with `labs/submission10.md` containing comparative analysis of cloud services. Submit the PR link via Moodle.
+> **Goal:** Push the QuickNotes image to a real registry, deploy it to Cloud Run (or Fly.io). Verify scale-to-zero. Bonus: compare cold-start latency across two platforms.
+> **Deliverable:** A PR from `feature/lab10` to the course repo with `cloud/` + `submissions/lab10.md`. Submit the PR link via Moodle.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Researching **artifact registries** across AWS, GCP, and Azure.
-- Comparing **serverless computing platforms** on major cloud providers.
-- Analyzing key features, pricing models, and use cases for cloud services.
-- Documenting findings in a structured, comparative format.
+This is the capstone of the main course — the QuickNotes image you've been building, hardening, and scanning since Lab 6 finally goes to the cloud.
 
-These skills are essential for making informed decisions about cloud infrastructure and selecting appropriate services for DevOps workflows.
-
----
-
-## Tasks
-
-### Task 1 — Artifact Registries Research (5 pts)
-
-**Objective:** Identify and document the most popular artifact registries in AWS, GCP, and Azure.
-
-**Why This Matters:** Artifact registries are critical for storing, managing, and distributing container images, packages, and build artifacts in modern DevOps pipelines. Understanding different registry options helps you choose the right solution for your infrastructure.
-
-#### 1.1: Research Artifact Registries
-
-1. **Explore Cloud Provider Documentation:**
-
-   Research the official documentation and services for:
-   - **AWS:** Identify AWS's primary artifact registry service
-   - **GCP:** Identify GCP's primary artifact registry service
-   - **Azure:** Identify Azure's primary artifact registry service
-
-   <details>
-   <summary>🔍 What to research</summary>
-
-   For each artifact registry service, investigate:
-   - Official service name
-   - What types of artifacts it supports (container images, npm packages, Maven, etc.)
-   - Key features (security scanning, geo-replication, access control, etc.)
-   - Integration with other cloud services
-   - Pricing model basics
-   - Common use cases
-
-   </details>
-
-#### 1.2: Document Your Findings
-
-In `labs/submission10.md`, document:
-- Service name for each cloud provider
-- Key features of each artifact registry
-- Supported artifact types
-- Integration capabilities
-- Comparison table highlighting similarities and differences
-- Analysis: Which registry service would you choose for a multi-cloud strategy and why?
+By the end:
+- Your image is pushed to a real registry (GHCR, Artifact Registry, or ECR)
+- QuickNotes runs on Cloud Run (or Fly.io) at a public URL
+- Scale-to-zero demonstrated
+- (Bonus) Cold-start latency measured across two platforms
 
 ---
 
-### Task 2 — Serverless Computing Platform Research (5 pts)
+## Project State
 
-**Objective:** Identify and document the best serverless computing platforms in AWS, GCP, and Azure.
+**Starting point:** Lab 6 image works locally; Lab 9 has hardened it.
 
-**Why This Matters:** Serverless computing enables developers to run code without managing servers, reducing operational overhead and enabling auto-scaling. Understanding serverless options is crucial for modern application architecture.
+**After this lab:** A public URL serves your QuickNotes. The deploy is automated from CI (Bonus).
 
-#### 2.1: Research Serverless Computing Platforms
+---
 
-1. **Explore Serverless Offerings:**
+## Prerequisites
 
-   Research serverless computing services for:
-   - **AWS:** Identify AWS's primary serverless compute service(s)
-   - **GCP:** Identify GCP's primary serverless compute service(s)
-   - **Azure:** Identify Azure's primary serverless compute service(s)
+- One of:
+  - GCP account (free tier — credit card may be required even for free use)
+  - Fly.io account (alternative — works from more countries)
+- Lab 3 CI workflow exists
+- Lab 6 Dockerfile produces a clean image
 
-   <details>
-   <summary>🔍 What to research</summary>
+---
 
-   For each serverless platform, investigate:
-   - Official service name(s)
-   - Supported programming languages/runtimes
-   - Execution models (event-driven, HTTP-triggered, etc.)
-   - Cold start performance characteristics
-   - Integration with other cloud services
-   - Pricing model (per invocation, per execution time, etc.)
-   - Maximum execution duration limits
-   - Common use cases and architectures
+## Task 1 — Push to a Real Registry (6 pts)
 
-   </details>
+### Option A: GitHub Container Registry (free, OIDC-friendly)
 
-#### 2.2: Document Your Findings
+```bash
+echo $GITHUB_PAT | docker login ghcr.io -u YOUR_USERNAME --password-stdin
 
-In `labs/submission10.md`, document:
-- Service name(s) for each cloud provider
-- Key features and capabilities
-- Supported runtimes and languages
-- Pricing comparison
-- Performance characteristics
-- Comparison table highlighting similarities and differences
-- Analysis: Which serverless platform would you choose for a REST API backend and why?
-- Reflection: What are the main advantages and disadvantages of serverless computing?
+docker build -t ghcr.io/YOUR_USERNAME/quicknotes:v0.1.0 ./app
+docker push ghcr.io/YOUR_USERNAME/quicknotes:v0.1.0
+```
+
+In the package's GitHub UI, make the package **public** so Cloud Run can pull without auth.
+
+### Option B: Artifact Registry (GCP)
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT
+
+# create the registry once
+gcloud artifacts repositories create qn \
+  --repository-format=docker \
+  --location=europe-west4
+
+gcloud auth configure-docker europe-west4-docker.pkg.dev
+
+docker build -t europe-west4-docker.pkg.dev/$PROJECT/qn/quicknotes:v0.1.0 ./app
+docker push     europe-west4-docker.pkg.dev/$PROJECT/qn/quicknotes:v0.1.0
+```
+
+### 1.4: Wire push into CI (recommended)
+
+Extend `.github/workflows/ci.yml` with a `release` workflow triggered on tags:
+
+```yaml
+# .github/workflows/release.yml
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write    # for ghcr.io
+  id-token: write    # for OIDC
+
+jobs:
+  push:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@<SHA>
+      - uses: docker/login-action@<SHA>
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@<SHA>
+        with:
+          context: ./app
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/quicknotes:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}/quicknotes:latest
+```
+
+Tag a release:
+
+```bash
+git tag -a -s v0.1.0 -m "Lab 10 release"
+git push origin v0.1.0
+```
+
+Watch the workflow push.
+
+### 1.5: Document
+
+In `submissions/lab10.md`:
+- Registry URL + pulled-by-anyone evidence (`docker pull <URL>` from a clean machine or browser)
+- The release workflow YAML
+- A successful CI release run URL
+
+---
+
+## Task 2 — Deploy to Cloud Run (or Fly.io) (4 pts)
+
+### Option A: Cloud Run
+
+```bash
+gcloud run deploy quicknotes \
+    --image europe-west4-docker.pkg.dev/$PROJECT/qn/quicknotes:v0.1.0 \
+    --region europe-west4 \
+    --port 8080 \
+    --memory 256Mi --cpu 1 \
+    --max-instances 5 \
+    --min-instances 0 \
+    --allow-unauthenticated
+
+# get URL
+URL=$(gcloud run services describe quicknotes --region europe-west4 --format='value(status.url)')
+curl -s "$URL/health"
+```
+
+### Option B: Fly.io
+
+```bash
+flyctl auth login
+cd app/
+flyctl launch \
+  --name quicknotes-USERNAME \
+  --image ghcr.io/YOUR_USERNAME/quicknotes:v0.1.0 \
+  --internal-port 8080 \
+  --region ams \
+  --no-deploy
+
+# edit fly.toml as needed, then:
+flyctl deploy
+flyctl open
+```
+
+### 2.3: Demonstrate scale-to-zero (Cloud Run)
+
+```bash
+# wait 5+ minutes with no traffic, then:
+URL_TIME=$(curl -s -o /dev/null -w '%{time_total}' "$URL/health")
+echo "first-after-idle: $URL_TIME"
+URL_TIME=$(curl -s -o /dev/null -w '%{time_total}' "$URL/health")
+echo "warm:            $URL_TIME"
+```
+
+Expected: the first request after idle is ~1-2 s; the warm request is ~50-100 ms.
+
+### 2.4: Tear it down
+
+```bash
+# Cloud Run
+gcloud run services delete quicknotes --region europe-west4 --quiet
+
+# Fly.io
+flyctl apps destroy quicknotes-USERNAME
+```
+
+### 2.5: Document
+
+In `submissions/lab10.md`:
+- Public URL (or screenshot if torn down)
+- `gcloud run services describe` output
+- Cold-vs-warm latency numbers
+- One paragraph: *what does scale-to-zero buy you, and what does it cost?*
+
+---
+
+## Bonus Task — Cold-Start Comparison Across Platforms (2 pts)
+
+Pick **two** platforms among Cloud Run, Fly.io, AWS Lambda (with custom runtime), and Render. Deploy the same QuickNotes image to both.
+
+### B.1: Measure
+
+Use `hyperfine` or a script:
+
+```bash
+# wait 10 min for both to scale to zero, then:
+hyperfine --warmup 0 --runs 10 \
+  'curl -s -o /dev/null https://qn-cloudrun.example.com/health' \
+  'curl -s -o /dev/null https://qn-flyio.example.com/health'
+```
+
+Repeat for warm requests (after they're awake).
+
+### B.2: Plot the distribution
+
+Optional but nice: use `gnuplot` or matplotlib to plot the cold + warm distributions side-by-side. Capture as PNG.
+
+### B.3: Document
+
+In `submissions/lab10.md`:
+- Numeric table: platform × (cold p50, cold p95, warm p50, warm p95)
+- Plot if you made one
+- 4-5 sentences: *what dominates the cold-start curve in each? what would change if your image were 200 MB instead of 15 MB?*
 
 ---
 
 ## How to Submit
 
-1. Create a branch for this lab and push it to your fork:
-
-   ```bash
-   git switch -c feature/lab10
-   # create labs/submission10.md with your findings
-   git add labs/submission10.md
-   git commit -m "docs: add lab10 submission"
-   git push -u origin feature/lab10
-   ```
-
-2. Open a PR from your fork's `feature/lab10` branch → **course repository's main branch**.
-
-3. In the PR description, include:
-
-   ```text
-   - [x] Task 1 — Artifact Registries Research
-   - [x] Task 2 — Serverless Computing Platform Research
-   ```
-
-4. **Copy the PR URL** and submit it via **Moodle before the deadline**.
+1. Image pushed to a public registry (URL in the submission)
+2. Deploy artifact (`fly.toml`, gcloud command in a script, etc.) committed to `cloud/`
+3. `submissions/lab10.md` covers all attempted tasks
+4. PR from `feature/lab10` → course repo's `main`
+5. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab10` exists with commits for each task.
-- ✅ File `labs/submission10.md` contains comprehensive research and analysis for Tasks 1-2.
-- ✅ Comparison tables included for both artifact registries and serverless platforms.
-- ✅ Analysis demonstrates understanding of cloud service differences.
-- ✅ PR from `feature/lab10` → **course repo main branch** is open.
-- ✅ PR link submitted via Moodle before the deadline.
+### Task 1 (6 pts)
+- ✅ Image in a real registry; pullable
+- ✅ CI workflow pushes on tag
+- ✅ Tagged release exists with green CI run
+
+### Task 2 (4 pts)
+- ✅ QuickNotes responds at a public URL
+- ✅ Cold + warm latency measured
+- ✅ Scale-to-zero trade-off discussed
+
+### Bonus Task (2 pts)
+- ✅ Two platforms compared
+- ✅ Numeric latency table
+- ✅ Discussion of what dominates cold start
 
 ---
 
-## Rubric (10 pts)
+## Rubric
 
-| Criterion                                       | Points |
-| ----------------------------------------------- | -----: |
-| Task 1 — Artifact Registries Research           |  **5** |
-| Task 2 — Serverless Computing Platform Research |  **5** |
-| **Total**                                       | **10** |
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — Registry push (CI-automated) | **6** | Image in registry, release workflow, tagged release |
+| **Task 2** — Cloud deploy | **4** | Public URL, scale-to-zero evidence, trade-off paragraph |
+| **Bonus** — Cross-platform cold-start | **2** | Two platforms, numeric table, dominant-factor analysis |
+| **Total** | **10 + 2 bonus** | |
+
+---
+
+## Common Pitfalls
+
+- 🪤 **Cloud Run can't pull from a private GHCR package** — make the package public or wire up GitHub OIDC → GCP
+- 🪤 **`gcloud` quota errors** — new accounts get hit; raise the quota or use a smaller region
+- 🪤 **`min-instances=1`** disables scale-to-zero — opposite of the Bonus measurement
+- 🪤 **Multi-arch builds for Fly.io** — Fly.io runs `linux/amd64` by default; build accordingly
+- 🪤 **Idle billing surprise** — Cloud Run with `min-instances=1` keeps a hot instance and **charges for it 24/7**
+- 🪤 **Submitting before tearing down** — leave a teardown script so the next student can verify; or screenshot first, then destroy
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission10.md`.
-- Include comparison tables for easy reference.
-- Cite official documentation sources.
-- Provide thoughtful analysis beyond just listing features.
-- Focus on understanding trade-offs between different cloud providers.
+- Always set `--max-instances` to a small number for a course lab — runaway scaling is real money
+- Treat the public URL as production: tag the image, sign it (Cosign — see Lecture 9 Bonus), use a CD pipeline
+- Cold-start numbers depend on platform, region, image size, and language. Note the test machine and connection too
+- The capstone is the *operationalization* of every prior lecture — your CI is the artifact, the image is the artifact, the deploy is the artifact
 
-<details>
-<summary>📚 Helpful Resources</summary>
+---
 
-**AWS Documentation:**
-- [AWS Documentation Portal](https://docs.aws.amazon.com/)
-- [AWS Services Overview](https://aws.amazon.com/products/)
+## Resources
 
-**GCP Documentation:**
-- [Google Cloud Documentation](https://cloud.google.com/docs)
-- [GCP Products and Services](https://cloud.google.com/products)
-
-**Azure Documentation:**
-- [Azure Documentation](https://docs.microsoft.com/azure/)
-- [Azure Services Directory](https://azure.microsoft.com/en-us/services/)
-
-</details>
-
-<details>
-<summary>💡 Research Tips</summary>
-
-1. Start with official cloud provider documentation for accurate information.
-2. Look for comparison articles and whitepapers from reputable sources.
-3. Check pricing pages to understand cost models.
-4. Review case studies to understand real-world use cases.
-5. Consider factors like vendor lock-in, migration complexity, and ecosystem integration.
-6. Use comparison tables to organize your findings clearly.
-
-</details>
-
-<details>
-<summary>🎯 Key Comparison Factors</summary>
-
-**For Artifact Registries:**
-- Supported artifact formats
-- Security features (vulnerability scanning, access control)
-- Geographic distribution and replication
-- Integration with CI/CD tools
-- Storage limits and pricing
-- Performance and reliability
-
-**For Serverless Platforms:**
-- Language/runtime support
-- Cold start latency
-- Execution duration limits
-- Concurrency and scaling
-- Event sources and triggers
-- Pricing model (pay-per-execution)
-- Observability and monitoring
-
-</details>
+- 📖 [Cloud Run — quickstart for containers](https://cloud.google.com/run/docs/quickstarts/build-and-deploy)
+- 📖 [Fly.io docs — deploy from a Docker image](https://fly.io/docs/launch/from-docker/)
+- 📖 [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
+- 📖 [AWS Lambda container image support](https://docs.aws.amazon.com/lambda/latest/dg/images-create.html)
+- 📝 [AWS us-east-1 Dec 2021 outage summary](https://aws.amazon.com/message/12721/)
+- 🛠️ [`hyperfine`](https://github.com/sharkdp/hyperfine) — micro-benchmarking
+- 🛠️ [`flyctl`](https://fly.io/docs/flyctl/), [`gcloud`](https://cloud.google.com/sdk/gcloud)
