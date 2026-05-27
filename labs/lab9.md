@@ -1,259 +1,239 @@
-# Lab 9 — Introduction to DevSecOps Tools
+# Lab 9 — DevSecOps: Scan QuickNotes with Trivy + ZAP
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
 ![topic](https://img.shields.io/badge/topic-DevSecOps-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![points](https://img.shields.io/badge/points-10%2B2-orange)
+![tech](https://img.shields.io/badge/tech-Trivy%20%2B%20ZAP-informational)
 
-> **Goal:** Explore fundamental DevSecOps practices by performing security scans on containers and web applications using industry-standard tools.  
-> **Deliverable:** A PR from `feature/lab9` to the course repo with `labs/submission9.md` containing scan results, analysis, and screenshots. Submit the PR link via Moodle.
+> **Goal:** Scan the QuickNotes image with Trivy. Run OWASP ZAP baseline against the running app. Triage every finding; fix at least one in code. Bonus: add `govulncheck` to your Lab 3 CI as a PR gate.
+> **Deliverable:** A PR from `feature/lab9` to the course repo with scan artifacts + code fix + `submissions/lab9.md`. Submit the PR link via Moodle.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Performing **web application scanning** using OWASP ZAP to identify common vulnerabilities.
-- Conducting **container vulnerability scanning** with Trivy to detect OS/library security issues.
-- Analyzing security scan results and understanding vulnerability types.
-- Working with intentionally vulnerable applications in a safe, controlled environment.
+By the end:
+- A **Trivy** report (image, filesystem, config) with every HIGH/CRITICAL triaged
+- A **CycloneDX SBOM** of the QuickNotes image
+- A **ZAP baseline** report; every finding triaged in a written decision (fix / accept / suppress)
+- At least one finding **fixed in code** with the before/after evidence
+- *(Bonus)* `govulncheck` runs in CI as a PR gate
 
-These skills are essential for integrating security into the DevOps pipeline and building secure applications.
-
----
-
-## Tasks
-
-### Task 1 — Web Application Scanning with OWASP ZAP (5 pts)
-
-**Objective:** Perform automated security scanning of a vulnerable web application using OWASP ZAP to identify common web vulnerabilities.
-
-**Why This Matters:** Web application scanning helps discover security flaws like XSS, SQL injection, and misconfigurations before attackers exploit them. ZAP is an industry-standard tool maintained by OWASP.
-
-#### 1.1: Start the Vulnerable Target Application
-
-1. **Deploy Juice Shop (Intentionally Vulnerable Application):**
-
-   ```bash
-   docker run -d --name juice-shop -p 3000:3000 bkimminich/juice-shop
-   ```
-
-2. **Verify It's Running:**
-
-   Open your browser and navigate to `http://localhost:3000`
-
-#### 1.2: Scan with OWASP ZAP
-
-1. **Run ZAP Baseline Scan:**
-
-   <details>
-   <summary>🐧 Linux Users - Network Configuration</summary>
-
-   On Linux, Docker containers can't use `host.docker.internal`. Get your Docker bridge IP:
-
-   ```bash
-   ip -f inet -o addr show docker0 | awk '{print $4}' | cut -d '/' -f 1
-   ```
-
-   Then use that IP in the ZAP command below instead of `host.docker.internal`.
-
-   </details>
-
-   ```bash
-   docker run --rm -u zap -v $(pwd):/zap/wrk:rw \
-   -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
-   -t http://host.docker.internal:3000 \
-   -g gen.conf \
-   -r zap-report.html
-   ```
-
-   > Mac/Windows users: Use `host.docker.internal` as shown above
-
-#### 1.3: Analyze Results
-
-1. **Open the Report:**
-
-   - Find `zap-report.html` in your current directory
-   - Open it in a browser
-
-2. **Identify Vulnerabilities:**
-
-   - Find at least 2 Medium risk vulnerabilities
-   - Check security headers status (which headers are present/missing?)
-   - Note the most interesting vulnerability found
-
-#### 1.4: Clean Up
-
-   ```bash
-   docker stop juice-shop && docker rm juice-shop
-   ```
-
-In `labs/submission9.md`, document:
-- Number of Medium risk vulnerabilities found
-- Description of the 2 most interesting vulnerabilities
-- Security headers status (which are present/missing and why they matter)
-- Screenshot of ZAP HTML report overview
-- Analysis: What type of vulnerabilities are most common in web applications?
+The skill is **triage + decision** — not running tools. Anyone can run a scanner; the value is what you do with the output.
 
 ---
 
-### Task 2 — Container Vulnerability Scanning with Trivy (5 pts)
+## Project State
 
-**Objective:** Identify vulnerabilities in container images using Trivy, focusing on intentionally vulnerable images for educational purposes.
+**Starting point:** Lab 6 image exists (`quicknotes:lab6`); Lab 8 stack optional.
 
-**Why This Matters:** Container scanning detects OS/library vulnerabilities in images before deployment. Trivy is the industry's most comprehensive open-source scanner.
+**After this lab:** Your CI has a security gate; QuickNotes ships with security headers; you can answer "am I affected by CVE-X?" via the SBOM.
 
-#### 2.1: Scan Container Image
+---
 
-1. **Run Trivy Scan:**
+## Prerequisites
 
-   ```bash
-   docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-   aquasec/trivy:latest image \
-   --severity HIGH,CRITICAL \
-   bkimminich/juice-shop
-   ```
+- Lab 6 done (QuickNotes container)
+- Lab 3 CI workflow (for the Bonus)
+- Docker
 
-   <details>
-   <summary>🔍 Understanding Trivy flags</summary>
+---
 
-   - `--severity HIGH,CRITICAL`: Only show high and critical vulnerabilities
-   - `-v /var/run/docker.sock`: Allows Trivy to access Docker images on your host
-   - `image`: Scan a container image
+## Task 1 — Trivy: Image + Filesystem + Config + SBOM (6 pts)
 
-   </details>
+### 1.1: Required scans
 
-#### 2.2: Analyze Results
+Run all four — capture each output:
 
-1. **Identify Key Findings:**
+1. **Image scan** — `trivy image quicknotes:lab6` with `--severity HIGH,CRITICAL`
+2. **Filesystem scan** of your repo — `trivy fs <repo>` with `--severity HIGH,CRITICAL`
+3. **Config scan** — `trivy config <repo>` (scans Dockerfile, compose.yaml, etc. for misconfig)
+4. **SBOM generation** — `trivy sbom --format cyclonedx` on the image, save the JSON
 
-   From the scan output, identify:
-   - Total number of CRITICAL vulnerabilities
-   - Total number of HIGH vulnerabilities
-   - At least 2 vulnerable package names
-   - The most common vulnerability type (CVE category)
+Pin Trivy to a specific version (e.g. `aquasec/trivy:0.59.x`) — not `:latest`.
 
-#### 2.3: Clean Up
+### 1.2: Triage every HIGH/CRITICAL
 
-   ```bash
-   docker rmi bkimminich/juice-shop
-   ```
+For **every** HIGH or CRITICAL finding across the three scans, document a **disposition** with a single label + reason in `submissions/lab9.md`:
 
-In `labs/submission9.md`, document:
-- Total count of CRITICAL and HIGH vulnerabilities
-- List of 2 vulnerable packages with their CVE IDs
-- Most common vulnerability type found
-- Screenshot of Trivy terminal output showing critical findings
-- Analysis: Why is container image scanning important before deploying to production?
-- Reflection: How would you integrate these scans into a CI/CD pipeline?
+| Label | Means | Required documentation |
+|-------|-------|------------------------|
+| **FIX** | Patch / upgrade now | Link to PR / commit where you fixed it |
+| **ACCEPT** | Risk is acceptable for now | Why it's acceptable + date by when you'd re-evaluate (≤ 6 months) |
+| **WATCH** | Not actionable yet (no upstream fix) | What you're watching + when you'll re-check |
+| **FALSE POSITIVE** | Scanner is wrong | Why it's wrong (with reasoning) |
+
+The discipline is **a decision per finding**, not a yes/no on "did you scan".
+
+### 1.3: Design questions
+
+- a) **CVE severity is one input, not the answer.** What else (reachability, exploit availability, deployment context) matters when triaging?
+- b) **Distroless images often show zero HIGH/CRITICAL.** Why is the minimal base the strongest single security control?
+- c) **`.trivyignore`** lets you suppress findings. When is that the right move, and when is it security theater?
+- d) **The SBOM** is a list of components. What concrete *future* problem does having it today solve? (Hint: Log4Shell, Lecture 9.)
+
+### 1.4: Where to start
+
+- 📖 [Trivy quickstart](https://trivy.dev/latest/getting-started/installation/)
+- 📖 [Trivy — supported targets](https://trivy.dev/latest/docs/target/)
+- 📖 [CycloneDX SBOM spec](https://cyclonedx.org/specification/overview/)
+
+### 1.5: Document
+
+In `submissions/lab9.md`:
+- Top of each of the four scan outputs
+- The triage **table** with every HIGH/CRITICAL + disposition
+- The first 30 lines of your CycloneDX SBOM
+- Design questions a-d answered
+
+---
+
+## Task 2 — OWASP ZAP Baseline + Fix at Least One Finding (4 pts)
+
+### 2.1: Run ZAP baseline
+
+Start QuickNotes (from Lab 6), then run `zap-baseline.py` against `http://localhost:8080`. **Do not** run the active scan; baseline is passive only. Save the HTML + JSON report.
+
+Pin ZAP to a specific image tag (e.g. `ghcr.io/zaproxy/zaproxy:2.16.x`).
+
+### 2.2: Triage every finding
+
+For each ZAP finding, document in `submissions/lab9.md`:
+- ID + name
+- Risk level
+- Affected URL / parameter
+- Disposition (FIX / ACCEPT / SUPPRESS / FALSE POSITIVE) + reason
+
+### 2.3: Pick one finding and fix it in code
+
+The most common ZAP baseline findings are **missing HTTP security headers**. Pick one (or more) and fix it in the QuickNotes Go code:
+
+Requirements for the fix:
+1. Implement it as **middleware** that wraps the router — don't sprinkle `Header().Set` calls across handlers
+2. Apply to **all** routes (not just `/health`)
+3. Add at least one **unit test** that asserts the header is present on a response
+4. The test must fail if the middleware is removed (so the fix is genuinely guarded)
+
+### 2.4: Re-scan and prove the finding is gone
+
+Rebuild the image. Re-run `zap-baseline.py`. The finding you fixed should **not** appear in the new report.
+
+### 2.5: Design questions
+
+- e) **Why a middleware** and not per-handler header sets?
+- f) **`Content-Security-Policy: default-src 'none'`** is the strictest CSP. What does it break? Why is it OK for QuickNotes (an API) but not for a website?
+- g) **False positives vs accepted findings:** ZAP often flags **informational** issues that aren't real problems. What's the cost of marking them all "accepted" without reading them?
+
+### 2.6: Document
+
+In `submissions/lab9.md`:
+- Full triage table for every ZAP finding
+- Code diff or PR link for your fix
+- Before/after ZAP report excerpts proving the finding is gone
+- Design questions e, f, g answered
+
+---
+
+## Bonus Task — `govulncheck` as a CI PR Gate (2 pts)
+
+### B.1: Goal
+
+Add `govulncheck` to your **Lab 3** CI workflow as a job that blocks the PR if it finds a vulnerability reachable from the QuickNotes call graph.
+
+### B.2: Requirements
+
+1. The job runs `govulncheck ./...` against `app/`
+2. The Go version matches the rest of CI (1.24)
+3. `govulncheck` is **pinned** (not `@latest`) — pick a version and reference it
+4. The job has its own status check; failing it blocks the PR
+5. Demonstrate the check **catches** something — temporarily add a known-vulnerable dependency, push, observe red, revert
+
+### B.3: Design questions
+
+- h) **Reachability** is `govulncheck`'s key idea. How is "this module has a CVE but we don't call the affected function" different from "this module has a CVE" — and what does that mean for triage workload?
+- i) **`go install golang.org/x/vuln/cmd/govulncheck@<version>`** — why pin the version of the *scanner*, not just `@latest`?
+- j) **govulncheck only knows about Go.** What's it *not* going to catch that Trivy (image scan) would?
+
+### B.4: Document
+
+In `submissions/lab9.md`:
+- Your CI workflow's new job (paste or link)
+- Screenshot or log of the "red" CI run when you introduced the vulnerable dep
+- Screenshot or log of the "green" run after revert
+- Design questions h, i, j answered
 
 ---
 
 ## How to Submit
 
-1. Create a branch for this lab and push it to your fork:
-
-   ```bash
-   git switch -c feature/lab9
-   # create labs/submission9.md with your findings
-   git add labs/submission9.md
-   git commit -m "docs: add lab9 submission"
-   git push -u origin feature/lab9
-   ```
-
-2. Open a PR from your fork's `feature/lab9` branch → **course repository's main branch**.
-
-3. In the PR description, include:
-
-   ```text
-   - [x] Task 1 — Web Application Scanning with OWASP ZAP
-   - [x] Task 2 — Container Vulnerability Scanning with Trivy
-   ```
-
-4. **Copy the PR URL** and submit it via **Moodle before the deadline**.
+1. Scan reports + SBOM committed to your fork (or in submission)
+2. Security-headers code change committed; passing test
+3. `submissions/lab9.md` covers all attempted tasks
+4. PR from `feature/lab9` → course repo's `main`
+5. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab9` exists with commits for each task.
-- ✅ File `labs/submission9.md` contains required outputs and analysis for Tasks 1-2.
-- ✅ ZAP scan completed with HTML report generated.
-- ✅ Trivy scan completed with vulnerability counts documented.
-- ✅ Screenshots included as evidence.
-- ✅ PR from `feature/lab9` → **course repo main branch** is open.
-- ✅ PR link submitted via Moodle before the deadline.
+### Task 1 (6 pts)
+- ✅ All four scans run; output captured
+- ✅ Every HIGH/CRITICAL has a documented disposition
+- ✅ CycloneDX SBOM generated
+- ✅ Design questions a-d answered
+
+### Task 2 (4 pts)
+- ✅ ZAP baseline run; report saved
+- ✅ Every finding triaged in a table
+- ✅ ≥ 1 fix landed in code (middleware + test); before/after evidence
+- ✅ Design questions e, f, g answered
+
+### Bonus Task (2 pts)
+- ✅ `govulncheck` job in CI
+- ✅ Demonstrated catching a bad dep
+- ✅ Design questions h, i, j answered
 
 ---
 
-## Rubric (10 pts)
+## Rubric
 
-| Criterion                                       | Points |
-| ----------------------------------------------- | -----: |
-| Task 1 — Web Application Scanning with OWASP ZAP |  **5** |
-| Task 2 — Container Vulnerability Scanning with Trivy |  **5** |
-| **Total**                                       | **10** |
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — Trivy scans + SBOM + triage | **6** | All scans + SBOM + per-finding disposition + design questions |
+| **Task 2** — ZAP triage + code fix | **4** | Findings triaged, fix landed, before/after, design questions |
+| **Bonus** — govulncheck CI gate | **2** | Job in CI, caught bad dep, design questions |
+| **Total** | **10 + 2 bonus** | |
+
+---
+
+## Common Pitfalls
+
+- 🪤 **Trivy first run is slow** — downloads the vuln DB (~200 MB). Cache it in CI
+- 🪤 **`zap-baseline.py` instead of `zap-full-scan.py`** — baseline is passive and safe; full is active and *can break things*. Never run active against anything you don't own
+- 🪤 **CSP too strict for a real app** — for QuickNotes (API) it's fine; for a website, allowlist what you actually need
+- 🪤 **`.trivyignore` instead of fixing** — only legitimate for documented, dated acceptances
+- 🪤 **`govulncheck` shows "no vulnerabilities"** — that's the *goal*. To prove the check works, deliberately introduce a bad dep
+- 🪤 **Triage table missing** — running scanners without acting on them is the most common DevSecOps theater. Don't fall into it
+- 🪤 **Security headers break clients** — strict CSP can break Swagger UI if you add it later. Test before strict-locking
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission9.md`.
-- Include both scan outputs and written analysis for each task.
-- Take clear screenshots showing key findings.
-- Provide thoughtful analysis of vulnerability types and their impact.
-- Follow responsible disclosure practices in documentation.
+- The lab measures **decision quality**, not scanner output volume
+- For every finding you accept, set a *date* to re-evaluate. Without a date it's a permanent rug-pull
+- The unit test that asserts your security header is present is what separates a "fix" from a "comment"
+- govulncheck reachability vs Trivy module-presence is the most important distinction in this lab
 
-<details>
-<summary>📚 Helpful Resources</summary>
+---
 
-- [OWASP ZAP Documentation](https://www.zaproxy.org/docs/)
-- [Trivy Documentation](https://aquasecurity.github.io/trivy/)
-- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
-- [Common Vulnerabilities and Exposures (CVE)](https://cve.mitre.org/)
+## Resources
 
-</details>
-
-<details>
-<summary>🔒 Security Best Practices</summary>
-
-1. **Scanning Ethics:**
-   - Only scan applications you own or have explicit permission to test
-   - All scans in this lab target intentionally vulnerable containers running locally
-   - Never run automated scanners against production systems without permission
-
-2. **Vulnerability Management:**
-   - Prioritize fixing CRITICAL and HIGH vulnerabilities first
-   - Understand the context of each vulnerability (exploitability, impact)
-   - Keep base images updated regularly
-   - Use minimal base images to reduce attack surface
-
-3. **CI/CD Integration:**
-   - Run security scans as part of your build pipeline
-   - Fail builds on CRITICAL vulnerabilities
-   - Generate reports for security team review
-
-</details>
-
-<details>
-<summary>💡 DevSecOps Tips</summary>
-
-1. Shift security left - scan early and often in the development cycle.
-2. Automate security scanning to make it part of the workflow, not an afterthought.
-3. Understand false positives - not all reported vulnerabilities are exploitable in your context.
-4. Create a vulnerability remediation plan with priorities and timelines.
-5. Use security scanning tools as learning opportunities to understand common vulnerabilities.
-
-</details>
-
-<details>
-<summary>🎯 Understanding Vulnerability Severity</summary>
-
-**CVSS Severity Ratings:**
-- **CRITICAL (9.0-10.0):** Immediate action required, actively exploited
-- **HIGH (7.0-8.9):** Should be fixed soon, high impact
-- **MEDIUM (4.0-6.9):** Plan remediation, moderate impact
-- **LOW (0.1-3.9):** Fix when convenient, minimal impact
-
-Consider both technical severity and business context when prioritizing fixes.
-
-</details>
+- 📖 [Trivy docs](https://trivy.dev/)
+- 📖 [OWASP ZAP docs](https://www.zaproxy.org/docs/)
+- 📖 [OWASP Top 10 — 2021](https://owasp.org/Top10/)
+- 📖 [`govulncheck` — official tutorial](https://go.dev/blog/vuln)
+- 📖 [Mozilla — Web Security guidelines](https://infosec.mozilla.org/guidelines/web_security)
+- 📝 [Log4Shell incident summary (Sonatype)](https://blog.sonatype.com/log4shell-vulnerability-the-first-30-days)
+- 📝 [Equifax 2017 — GAO report](https://www.gao.gov/products/gao-18-559)
+- 🛠️ Optional: Syft (SBOM), Grype (vuln scan), gitleaks, trufflehog

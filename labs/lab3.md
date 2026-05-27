@@ -1,371 +1,313 @@
-# Lab 3 — CI/CD with GitHub Actions & GitLab CI
+# Lab 3 — CI/CD: A PR-Gated Pipeline for QuickNotes
 
 ![difficulty](https://img.shields.io/badge/difficulty-beginner-success)
-![topic](https://img.shields.io/badge/topic-CI%2FCD%20Pipelines-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![topic](https://img.shields.io/badge/topic-CI%2FCD-blue)
+![points](https://img.shields.io/badge/points-10%2B2-orange)
+![tech](https://img.shields.io/badge/tech-GH%20Actions%20or%20GitLab%20CI-informational)
 
-> **Goal:** Build foundational CI/CD workflows using GitHub Actions or GitLab CI: quickstart, triggers, logs, and system information.
-> **Deliverable:** A PR/MR from `feature/lab3` to the course repo with `labs/submission3.md` containing run links/log snippets, pipeline YAML, and brief explanations for each task. Submit the PR/MR link via Moodle.
+> **Goal:** Wire `vet + test + lint` as a required PR gate for QuickNotes. Cache the Go module download. Investigate where your pipeline spends its wall-clock time.
+> **Deliverable:** A PR from `feature/lab3` to the course repo with a working CI pipeline + `submissions/lab3.md`. Submit the PR link via Moodle.
 
-> **📌 Important:** Choose **ONE** platform (GitHub Actions OR GitLab CI) based on where your repository is hosted. Both platforms accomplish the same learning objectives.
+---
+
+## Pick Your Path
+
+Two **equivalent** paths. You pick **one** and complete the same Tasks 1+2 on it — same engineering, same 10 points.
+
+| Path | Choose this if… | You write |
+|------|----------------|-----------|
+| **GitHub Actions** *(default)* | You can sign in to github.com | `.github/workflows/ci.yml` |
+| **GitLab CI** | You can't access GitHub (sanctions, account locks). Innopolis runs an internal GitLab at `gitlab.pg.innopolis.university` | `.gitlab-ci.yml` |
+
+> 📝 **Pick *one*.** Doing both does not earn extra points — the Bonus task is a different challenge.
+
+State your chosen path at the top of `submissions/lab3.md`.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Creating a minimal CI/CD pipeline using the official quickstart guide.
-- Triggering pipelines on `push` and manually.
-- Viewing run logs, understanding jobs/steps/stages, and diagnosing failures.
-- Gathering runner OS/CPU/memory information from within a job.
-- Documenting findings in `labs/submission3.md` with evidence (links/snippets).
+By the end of this lab:
+- Every PR to `main` automatically runs `go vet`, `go test -race`, and `golangci-lint`
+- A failing PR is **blocked** from merging
+- Your pipeline is fast enough that you don't dread it (Task 2 + Bonus)
 
-**Platform Selection:**
-- **GitHub users:** Follow the GitHub Actions tasks below (default instructions)
-- **GitLab users:** Expand the "GitLab CI Alternative" sections for GitLab-specific instructions
+You won't be handed the YAML. The skill of this lab is **writing it yourself** from requirements + docs. That's a marketable skill; "copy-pasted from a tutorial" isn't.
 
 ---
 
-<details>
-<summary>🦊 <strong>GitLab CI Alternative - Complete Instructions (Click to Expand)</strong></summary>
+## Project State
 
-## GitLab CI Tasks
+**Starting point:** QuickNotes runs locally (Lab 1); your fork's `main` mirrors upstream.
 
-### Task 1 — First GitLab CI Pipeline (6 pts)
-
-**Objective:** Set up a basic pipeline that runs on push and prints basic info.
-
-#### 1.1: Follow GitLab CI Quickstart
-
-1. **Read and Implement Quickstart:**
-
-   - Read and follow the GitLab CI [quickstart guide](https://docs.gitlab.com/ee/ci/quick_start/).
-   - Create a `.gitlab-ci.yml` file in the root of your repository.
-   - Document all your observations, key concepts, and steps you followed.
-
-   <details>
-   <summary>💡 Hints</summary>
-
-   - The pipeline configuration file must be named `.gitlab-ci.yml` (not `.yaml`)
-   - Place it in the repository root (same level as README.md)
-   - You'll need to define at least one job with a `script` section
-   - Consider using `echo`, `date`, or other simple commands to verify it's working
-
-   </details>
-
-#### 1.2: Test Pipeline Trigger
-
-1. **Push Commit and Monitor:**
-
-   - Commit and push your `.gitlab-ci.yml` file
-   - Navigate to your project → **Build → Pipelines** (or CI/CD → Pipelines)
-   - Observe the running pipeline
-   - Click on the pipeline to see job details and logs
-
-In `labs/submission3.md`, document:
-- Link to the successful pipeline run (or screenshots)
-- Key concepts learned (stages, jobs, runners, triggers)
-- A short note on what caused the pipeline to trigger
-- Analysis of pipeline execution process
+**After this lab:** Your fork's `main` is branch-protected; PRs cannot merge without a green CI run.
 
 ---
 
-### Task 2 — Manual Trigger + System Information (4 pts)
+## Prerequisites
 
-**Objective:** Add a manual trigger and capture system details from the runner.
-
-#### 2.1: Add Manual Trigger
-
-1. **Extend Pipeline with Manual Trigger:**
-
-   <details>
-   <summary>📚 Where to find manual trigger documentation</summary>
-
-   - [GitLab CI YAML Reference - when:manual](https://docs.gitlab.com/ee/ci/yaml/#when)
-   - [Running jobs manually](https://docs.gitlab.com/ee/ci/jobs/#run-a-manual-job)
-   - Look for the `when` keyword in the documentation
-   - Consider using `allow_failure: true` to prevent blocking the pipeline
-
-   </details>
-
-#### 2.2: Test Manual Trigger
-
-1. **Trigger Job Manually:**
-
-   - Push your updated `.gitlab-ci.yml`
-   - Navigate to **Build → Pipelines** → Click on your pipeline
-   - Find your manual job and click the play button ▶️ to run it
-   - View the job logs
-
-#### 2.3: Gather System Information
-
-1. **Add System Information Collection:**
-
-   - Modify your pipeline to include an additional job for gathering system information
-   - Use appropriate commands to collect information about the runner, hardware specifications, and operating system details
-
-   <details>
-   <summary>💡 Useful commands and variables</summary>
-
-   **System commands:**
-   - `uname` - OS and kernel information
-   - `nproc` - number of CPU cores
-   - `free` - memory information
-   - `df` - disk space
-   - `cat /proc/cpuinfo` - detailed CPU info
-
-   **GitLab CI variables:**
-   - `$CI_RUNNER_VERSION` - Runner version
-   - `$CI_RUNNER_DESCRIPTION` - Runner description
-   - `$CI_JOB_ID` - Current job ID
-   - `$CI_PIPELINE_ID` - Current pipeline ID
-   - [Full list of predefined variables](https://docs.gitlab.com/ee/ci/variables/predefined_variables.html)
-
-   </details>
-
-2. **Push and Verify:**
-
-   - Commit and push your changes
-   - View the job logs to see detailed runner information
-
-In `labs/submission3.md`, document:
-- Changes made to the `.gitlab-ci.yml` file
-- The gathered system information from runner
-- Comparison of manual vs automatic job triggers
-- Analysis of runner environment and capabilities
-- Screenshots of pipeline overview and job logs
+- Lab 1 + Lab 2 complete (signed commits, your fork up to date)
+- GitHub *or* GitLab account
+- ~5 free hours of CI minutes/month (both platforms' free tiers cover this lab comfortably)
 
 ---
 
-### GitLab CI - How to Submit
+## Task 1 — Write the PR Gate (6 pts)
 
-1. Create a branch for this lab and push it:
+### 1.1: Requirements your pipeline must meet
 
-   ```bash
-   git switch -c feature/lab3
-   # create labs/submission3.md with your findings
-   git add labs/submission3.md
-   git commit -m "docs: add lab3 submission"
-   git push -u origin feature/lab3
+Your CI configuration MUST:
+
+1. **Trigger** on:
+   - Push to `main`
+   - Every pull request targeting `main`
+2. **Run three independent units of work** (jobs in GH Actions; jobs-within-stages in GitLab CI):
+   - **vet** → `go vet ./...` against `app/`
+   - **test** → `go test -race -count=1 ./...` against `app/`
+   - **lint** → `golangci-lint run` against `app/`, using **golangci-lint v2.5.0** (pinned)
+3. **Pin the runtime environment** — not `:latest`, not `ubuntu-latest`. Pick a specific Ubuntu LTS or Go image tag and stick with it
+4. **GH Actions only:** every third-party action (anything not prefixed `actions/` from GitHub itself, and even those for hardening) must be referenced by **full 40-character commit SHA**, with the human-readable tag in a trailing comment:
+   ```yaml
+   - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11  # v4.2.2
    ```
+5. **GH Actions only:** declare `permissions:` at the workflow or job level — start with `contents: read` (least privilege)
+6. The pipeline **MUST FAIL** the PR if any of the three units fails
 
-2. Open a **Merge Request (MR)** from your fork's `feature/lab3` branch → **course repository's main branch**.
+### 1.2: Design questions — answer these in your submission
 
-3. In the MR description, include:
+Don't skip these. The answers matter more than the YAML.
 
-   ```text
-   - [x] Task 1 done (GitLab CI)
-   - [x] Task 2 done (GitLab CI)
-   ```
+- a) **Why pin the runner version** (`ubuntu-24.04`) instead of `ubuntu-latest`? What breaks otherwise?
+- b) **Why split vet + test + lint into separate units?** What would happen with one combined job?
+- c) **GH path:** what real attack does **SHA pinning** prevent? Cite the date + name of the incident from Lecture 3
+- d) **GH path:** what is `permissions:` and what's the principle behind it?
+- e) **GitLab path:** what's the difference between a *stage* and a *job*? What would `dependencies:` do that `stages:` doesn't?
 
-4. **Copy the MR URL** and submit it via **Moodle before the deadline**.
+### 1.3: Where to start (docs, not copy-paste)
 
----
+- **GitHub Actions:**
+  - [Quickstart](https://docs.github.com/en/actions/quickstart)
+  - [Workflow syntax reference](https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions)
+  - [`actions/setup-go`](https://github.com/actions/setup-go)
+  - [`golangci/golangci-lint-action`](https://github.com/golangci/golangci-lint-action)
+- **GitLab CI:**
+  - [CI/CD YAML syntax reference](https://docs.gitlab.com/ee/ci/yaml/)
+  - [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
+  - [`golang` Docker image tags](https://hub.docker.com/_/golang) for the test image
+- **Both platforms:** find the official "setup Go" example in the docs for your platform and adapt it. Your QuickNotes module lives in `app/` — your pipeline will need to change directory or set a working directory.
 
-### GitLab CI - Acceptance Criteria
+### 1.4: Iterate to green
 
-- ✅ Branch `feature/lab3` exists with commits for each task
-- ✅ File `.gitlab-ci.yml` exists in repository root
-- ✅ File `labs/submission3.md` contains required outputs and analysis for Tasks 1-2
-- ✅ Pipeline runs successfully on `push` and has manual jobs configured
-- ✅ MR from `feature/lab3` → **course repo main branch** is open
-- ✅ MR link submitted via Moodle before the deadline
+```bash
+git switch -c feature/lab3
+# write your CI config
+git add .github/workflows/ci.yml   # OR .gitlab-ci.yml
+git commit -S -s -m "ci(lab3): add PR-gate"
+git push -u origin feature/lab3
+```
 
----
+Open a draft PR. Read the CI output. Fix until green. **Then** mark the PR ready for review.
 
-### GitLab CI - Helpful Resources
+### 1.5: Prove the gate works
 
-**Official Documentation:**
-- [GitLab CI/CD Documentation](https://docs.gitlab.com/ee/ci/)
-- [.gitlab-ci.yml Reference](https://docs.gitlab.com/ee/ci/yaml/)
-- [GitLab CI Quick Start](https://docs.gitlab.com/ee/ci/quick_start/)
-- [Understanding GitLab Pipelines](https://docs.gitlab.com/ee/ci/pipelines/)
+Make a commit that deliberately breaks something (e.g. change an expected value in `app/handlers_test.go`). Push. Confirm:
 
-**Key Concepts:**
-- **Stages:** Groups of jobs that run in sequence (test → build → deploy)
-- **Jobs:** Individual tasks that run scripts
-- **Runners:** Execution agents that run your jobs
-- **Triggers:** Events that start pipelines (push, merge request, manual, scheduled)
+- The check is **red**
+- The PR **cannot merge** (see 1.6)
 
-**GitLab CI Tips:**
-1. Pipeline files must be named `.gitlab-ci.yml` in repository root
-2. Verify pipeline syntax using GitLab's built-in CI Lint (CI/CD → Editor → Validate)
-3. Monitor pipeline runs in Build → Pipelines
-4. Check job logs immediately after pushing to diagnose issues
-5. Use `when: manual` to create manually-triggered jobs
+Revert the breakage with a follow-up commit. Confirm the check is green again.
 
-**GitLab-specific CI Variables:**
-- `$CI_COMMIT_SHA` - Commit hash
-- `$CI_COMMIT_BRANCH` - Branch name
-- `$CI_PIPELINE_ID` - Pipeline ID
-- `$CI_JOB_ID` - Job ID
-- `$CI_RUNNER_VERSION` - Runner version
-- [Full list of predefined variables](https://docs.gitlab.com/ee/ci/variables/predefined_variables.html)
+### 1.6: Branch protection
 
-</details>
+On your fork: **Settings → Branches → Add rule for `main`**:
+- ✅ Require status checks to pass before merging
+- ✅ Require branches to be up to date before merging
+- ✅ Required checks: `vet`, `test`, `lint` (or your stage names)
 
----
+GitLab equivalent: **Settings → Repository → Protected branches** + **Push rules**.
 
-## Tasks (GitHub Actions)
+### 1.7: Document
 
-### Task 1 — First GitHub Actions Workflow (6 pts)
-
-**Objective:** Set up a basic workflow that runs on push and prints basic info.
-
-#### 1.1: Follow GitHub Actions Quickstart
-
-1. **Read and Implement Quickstart:**
-
-   - Read and follow the GitHub Actions [quickstart](https://docs.github.com/en/actions/quickstart).
-   - Document all your observations, key concepts, and steps you followed.
-
-#### 1.2: Test Workflow Trigger
-
-1. **Push Commit and Monitor:**
-
-   - Push a commit to trigger the workflow.
-   - Observe the run details and logs in the Actions tab.
-
-In `labs/submission3.md`, document:
-- Link to the successful run (or screenshots).
-- Key concepts learned (jobs, steps, runners, triggers).
-- A short note on what caused the run to trigger.
-- Analysis of workflow execution process.
+In `submissions/lab3.md`:
+- Which path you picked (GitHub or GitLab) and why
+- Link to a **green** CI run
+- Screenshot or log of the *failed* run from 1.5, plus the fix commit
+- Branch-protection screenshot
+- Written answers to all 5 design questions in 1.2
 
 ---
 
-### Task 2 — Manual Trigger + System Information (4 pts)
+## Task 2 — Make It Fast and Smart (4 pts)
 
-**Objective:** Add a manual trigger and capture system details from the runner.
+### 2.1: Cache the dependency download
 
-#### 2.1: Add Manual Trigger
+Caching what you can:
+- Go module cache (everything `go mod download` produces)
+- Go build cache (compilation outputs from `go install`/`go build`)
 
-1. **Extend Workflow with Manual Trigger:**
+The key insight: **cache *inputs*, not *outputs***. Inputs (`go.sum`-pinned modules) are deterministic; outputs may vary subtly.
 
-   <details>
-   <summary>📚 Where to find manual trigger documentation</summary>
+Find the right cache mechanism on your platform:
+- **GH Actions:** look at the documented options on `actions/setup-go`
+- **GitLab CI:** read [Caching in GitLab CI/CD](https://docs.gitlab.com/ee/ci/caching/) — pay attention to `cache.key.files`
 
-   - [Triggering a workflow - GitHub Docs](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#defining-inputs-for-manually-triggered-workflows)
-   - Look for `workflow_dispatch` event in the documentation
-   - Inputs for manually triggered workflows are not needed, so you can skip them
+### 2.2: Add a build matrix
 
-   </details>
+Run `vet + test` against **two Go versions** in parallel: `1.23` and `1.24`. Catch "works on my machine" bugs that depend on the toolchain.
 
-#### 2.2: Test Manual Dispatch
+Tips:
+- GH: `strategy.matrix`
+- GitLab: `parallel:matrix:`
+- Set `fail-fast: false` (GH) or equivalent so a single bad cell doesn't cancel the others — you want to *see* which combo broke
 
-1. **Dispatch Workflow Manually:**
+### 2.3: Skip docs-only changes
 
-   - Dispatch the workflow manually from the GitHub UI (Actions → your workflow → Run workflow).
+Edit your trigger so the pipeline runs **only** when something in `app/` or your CI config itself changes. README edits should not burn 4 minutes of CI time.
 
-#### 2.3: Gather System Information
+- GH: `on.pull_request.paths`
+- GitLab: `rules:` with `changes:`
 
-1. **Add System Information Collection:**
+### 2.4: Measure
 
-   - Modify your workflow to include an additional step for gathering system information.
-   - Use the appropriate actions and steps to collect information about the runner, hardware specifications, and operating system details.
+Capture wall-clock times from the CI UI for three scenarios:
 
-In `labs/submission3.md`, document:
-- Changes made to the workflow file.
-- The gathered system information from runner.
-- Comparison of manual vs automatic workflow triggers.
-- Analysis of runner environment and capabilities.
+| Scenario | Wall-clock |
+|----------|-----------|
+| Baseline (no cache, single Go version, no path filter) | XX s |
+| With cache | XX s |
+| With cache + matrix | XX s |
+
+> 💡 To get a clean baseline, temporarily disable each optimization with a commit, take a screenshot of the run time, then restore.
+
+### 2.5: Document
+
+In `submissions/lab3.md`:
+- The 3-row timing table above
+- A description (not the YAML) of each optimization you applied
+- Design questions for Task 2:
+  - f) **Why cache `go.sum`-keyed inputs and not build outputs?**
+  - g) **What does `fail-fast: false` change in a matrix run, and when do you actually want `fail-fast: true`?**
+  - h) **What's the risk** of an attacker writing a cache from a malicious PR that protected branches later read? (Hint: GH has mitigations — find the official doc on this)
+
+---
+
+## Bonus Task — Pipeline Performance Investigation (2 pts)
+
+**Goal:** make your full pipeline complete in **≤ 90 s** wall-clock, or document the dominant cost if you can't.
+
+### B.1: Profile
+
+Use the CI UI's per-step timing breakdown. For each unit:
+- How long does the runner take to **start**?
+- How long does **dependency setup** take (Go install, module download)?
+- How long does **the actual work** take (vet, test, lint)?
+- How long does **cleanup / artifact upload** take?
+
+### B.2: Apply ≥ 3 additional optimizations beyond Task 2
+
+Choices (pick at least 3; you don't have to apply all):
+- Use a **smaller base image** (`golang:1.24-alpine` vs `golang:1.24`)
+- **Run lint and tests in parallel** with the right dependency graph
+- **Skip lint** on docs-only commits within `app/` (e.g. only the README changed)
+- Switch to **BuildKit** for any Docker-related steps (Lab 6 territory but applies if you build a probe image)
+- Use a **self-hosted runner** — probably overkill for this lab, but mention it
+- Avoid `go install` on every run — pre-install the linter in a base image or `actions/cache` the `$GOBIN`
+- Use **`GOFLAGS=-buildvcs=false`** when CI clones with limited git history
+
+### B.3: Present before/after
+
+| Optimization applied | Before (s) | After (s) | Saving |
+|----------------------|-----------:|----------:|-------:|
+| Optimization 1 — name it | XX | XX | -XX |
+| Optimization 2 — name it | XX | XX | -XX |
+| Optimization 3 — name it | XX | XX | -XX |
+| **Total wall-clock** | **XX** | **XX** | **-XX** |
+
+### B.4: Bottleneck analysis
+
+Answer in 4-6 sentences:
+- Which single step dominates the *remaining* time?
+- What would you have to change about QuickNotes itself (the code, not the pipeline) to make it shorter?
+- At what wall-clock would your team *stop* optimizing? Why?
 
 ---
 
 ## How to Submit
 
-1. Create a branch for this lab and push it:
-
-   ```bash
-   git switch -c feature/lab3
-   # create labs/submission3.md with your findings
-   git add labs/submission3.md
-   git commit -m "docs: add lab3 submission"
-   git push -u origin feature/lab3
-   ```
-
-2. **Open a PR (GitHub) or MR (GitLab)** from your fork's `feature/lab3` branch → **course repository's main branch**.
-
-3. In the PR/MR description, include:
-
-   ```text
-   Platform: [GitHub Actions / GitLab CI]
-
-   - [x] Task 1 done
-   - [x] Task 2 done
-   ```
-
-4. **Copy the PR/MR URL** and submit it via **Moodle before the deadline**.
+1. CI config (`.github/workflows/ci.yml` *or* `.gitlab-ci.yml`) committed to your fork
+2. `submissions/lab3.md` covers all attempted tasks, including written answers to the design questions
+3. PR opened from `feature/lab3` → course repo's `main`
+4. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab3` exists with commits for each task.
-- ✅ File `labs/submission3.md` contains required outputs and analysis for Tasks 1-2.
-- ✅ **GitHub Actions:** Workflow runs successfully on `push` and via `workflow_dispatch`. File `.github/workflows/*.yml` exists.
-- ✅ **GitLab CI:** Pipeline runs successfully on `push` and has manual jobs. File `.gitlab-ci.yml` exists.
-- ✅ PR/MR from `feature/lab3` → **course repo main branch** is open.
-- ✅ PR/MR link submitted via Moodle before the deadline.
+### Task 1 (6 pts)
+- ✅ CI config exists and runs all three units (vet, test, lint)
+- ✅ Pinned runtime image (no `:latest`)
+- ✅ (GH path) All third-party actions pinned by full SHA
+- ✅ (GH path) `permissions:` set
+- ✅ Branch protection enabled requiring CI to pass
+- ✅ Evidence of a deliberate failure being **blocked**, then fixed
+- ✅ Written answers to all 5 design questions in 1.2
+
+### Task 2 (4 pts)
+- ✅ Caching active (and verifiable in the run log)
+- ✅ Matrix runs Go 1.23 + 1.24 in parallel
+- ✅ Path filter excludes docs-only PRs (demonstrate with one PR that *should* skip)
+- ✅ Timing table comparing baseline / cached / cached+matrix
+- ✅ Written answers to design questions f, g, h
+
+### Bonus Task (2 pts)
+- ✅ ≥ 3 additional optimizations applied beyond Task 2
+- ✅ Before/after timing table
+- ✅ Bottleneck analysis (4-6 sentences)
+- ✅ (Optional but appreciated) Target ≤ 90 s hit, or honest explanation of why not
 
 ---
 
-## Rubric (10 pts)
+## Rubric
 
-| Criterion                                      | Points |
-| ---------------------------------------------- | -----: |
-| Task 1 — First workflow setup + run            |   **6**|
-| Task 2 — Manual trigger + system information   |   **4**|
-| **Total**                                      |  **10**|
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — PR gate with vet+test+lint | **6** | All 3 units, pinned versions, SHA pinning (GH) or correct stages (GitLab), branch protection, failure+fix evidence, design questions answered |
+| **Task 2** — Cache + matrix + path filter | **4** | All three optimizations verified, timing table, design questions answered |
+| **Bonus** — Performance investigation | **2** | ≥ 3 optimizations, before/after table, bottleneck analysis |
+| **Total** | **10 + 2 bonus** | |
+
+---
+
+## Common Pitfalls
+
+- 🪤 **Used `actions/checkout@v4` instead of a 40-char SHA** — works, but defeats the point of the requirement and doesn't prepare you for the tj-actions class of incident
+- 🪤 **Forgot `working-directory` (or `cd app`) for Go commands** — Go modules live in `app/`, not the repo root; commands run from the root will fail with "no Go files"
+- 🪤 **`fail-fast: true` (the GH Actions default) in a matrix** — one fail cancels the others; you can't see *which* combo broke
+- 🪤 **Branch protection set on someone else's fork's `main`** — you can only protect *your* fork's `main`. The upstream course repo has its own protection
+- 🪤 **`golangci-lint` version not pinned** — "latest" pulls a new release tomorrow that may flag your code with new rules. Pin `v2.5.0` exactly
+- 🪤 **GitLab CI: incorrect anchor syntax** (`<<: *name`) — GitLab is strict; use the in-platform CI Lint tool (`Project → CI/CD → Editor → Validate`)
+- 🪤 **Cache hits expire after 7 days of inactivity on GH** — that's expected; the cache key is what protects you against poisoning
+- 🪤 **Time the pipeline once and call it baseline** — measure 3-5 runs and use the median; runners vary
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission3.md`.
-- Include both command outputs and written analysis for each task.
-- Document pipeline/workflow setup process and system information gathering.
-- Include links to successful pipeline/workflow runs or screenshots as evidence.
-- Clearly indicate which platform you used (GitHub Actions or GitLab CI) in your submission.
+- This lab's **skill is writing the YAML yourself**. Tutorials and docs are fine; copy-pasting a complete file from the lecture is not
+- For every change you make to the pipeline, ask *"what does this protect against?"* — if you can't answer, you don't need it
+- Take CI seriously: the most senior engineers in any team have strong opinions about pipeline shape, because broken pipelines cost everyone all day
+- "Make it work" → "make it fast" → "make it correct" is the natural order. Don't optimize before it's green
 
-<details>
-<summary>📚 Helpful Resources - GitHub Actions</summary>
+---
 
-**Official Documentation:**
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-- [Workflow Syntax Reference](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions)
-- [Understanding GitHub Actions](https://docs.github.com/en/actions/learn-github-actions/understanding-github-actions)
+## Resources
 
-</details>
-
-<details>
-<summary>📚 Helpful Resources - GitLab CI</summary>
-
-**Official Documentation:**
-- [GitLab CI/CD Documentation](https://docs.gitlab.com/ee/ci/)
-- [.gitlab-ci.yml Reference](https://docs.gitlab.com/ee/ci/yaml/)
-- [GitLab CI Quick Start](https://docs.gitlab.com/ee/ci/quick_start/)
-- [Understanding GitLab Pipelines](https://docs.gitlab.com/ee/ci/pipelines/)
-
-</details>
-
-<details>
-<summary>💡 GitHub Actions Tips</summary>
-
-1. Ensure workflow files are placed in `.github/workflows/` directory.
-2. Verify workflow syntax using GitHub's built-in validator.
-3. Monitor workflow runs in the Actions tab for debugging.
-4. Check the Actions tab immediately after pushing to see if the workflow triggered.
-
-</details>
-
-<details>
-<summary>💡 GitLab CI Tips</summary>
-
-1. Pipeline file must be named `.gitlab-ci.yml` in repository root.
-2. Verify pipeline syntax using GitLab's CI Lint (CI/CD → Editor → Validate).
-3. Monitor pipeline runs in Build → Pipelines for debugging.
-4. Check the Pipelines page immediately after pushing to see if the pipeline triggered.
-5. Use `when: manual` to create manually-triggered jobs.
-
-</details>
+- 📖 [GitHub Actions — Security guides](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)
+- 📖 [GitHub Actions — Caching dependencies](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows)
+- 📖 [GitLab CI/CD — Caching](https://docs.gitlab.com/ee/ci/caching/)
+- 📖 [GitLab CI/CD — Parallel matrix jobs](https://docs.gitlab.com/ee/ci/yaml/index.html#parallelmatrix)
+- 📝 [tj-actions/changed-files supply-chain incident (March 2025)](https://www.stepsecurity.io/blog/harden-runner-detection-tj-actions-changed-files-action-is-compromised)
+- 📕 *Continuous Delivery* — Humble & Farley (2010) — Chapters 1-5
+- 🛠️ [`pinact`](https://github.com/suzuki-shunsuke/pinact) — auto-pin actions by SHA
+- 🛠️ [`act`](https://github.com/nektos/act) — run GH Actions locally
+- 🛠️ [GitLab CI Lint](https://docs.gitlab.com/ee/ci/lint.html) — validate `.gitlab-ci.yml` before pushing

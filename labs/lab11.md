@@ -1,632 +1,271 @@
-# Lab 11 — Reproducible Builds with Nix
+# Lab 11 — Bonus: Reproducible Builds of QuickNotes with Nix
 
-![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
-![topic](https://img.shields.io/badge/topic-Nix%20%26%20Reproducibility-blue)
-![points](https://img.shields.io/badge/points-12-orange)
+![difficulty](https://img.shields.io/badge/difficulty-advanced-red)
+![topic](https://img.shields.io/badge/topic-Reproducible%20Builds%20%2F%20Nix-blue)
+![points](https://img.shields.io/badge/points-4%2B4%2B2-orange)
+![tech](https://img.shields.io/badge/tech-Nix%20Flakes%20%2B%20Go-informational)
 
-> **Goal:** Learn to create truly reproducible builds using Nix, eliminating "works on my machine" problems and achieving bit-for-bit reproducibility.
-> **Deliverable:** A PR/MR from `feature/lab11` to the course repo with `labs/submission11.md` containing build artifacts, hash comparisons, Nix expressions, and analysis. Submit the PR/MR link via Moodle.
+> **Goal:** Write a Nix flake that builds QuickNotes reproducibly. Extend it to build a deterministic OCI image. Prove that two independent builds produce the same SHA-256 image digest. Bonus: verify reproducibility from CI (two parallel runs, identical digests).
+> **Deliverable:** A PR from `feature/lab11` to the course repo with `flake.nix` (+ `flake.lock`) + `submissions/lab11.md`.
+
+> 🎁 **Bonus lab.** 10 pts total, structured as Task 1 (4) + Task 2 (4) + Bonus Task (2). This lab is the bonus; its full 10 pts count toward the bonus-labs grade weight.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Installing Nix and understanding the Nix philosophy
-- Writing Nix derivations to build software reproducibly
-- Creating reproducible Docker images using Nix
-- Using Nix Flakes for modern, declarative dependency management
-- Comparing Nix's reproducibility guarantees with traditional build tools
+You will not be handed a flake. Read [Reading 11](../lectures/reading11.md) first; then write the flake from requirements + docs.
 
-**Why Nix?** Traditional build tools (Docker, npm, pip, etc.) claim to be reproducible, but they're not:
-- `Dockerfile` with `apt-get install nodejs` gets different versions over time
-- `npm install` without lockfiles is non-deterministic
-- Docker builds include timestamps and vary across machines
+By the end:
+- A `flake.nix` at the repo root builds the QuickNotes binary
+- A second flake output builds a deterministic OCI image
+- Two independent builds (different machines or `nix store gc`-ed clones) produce **identical** SHA-256 image digests
 
-**Nix solves this:** Every build is isolated in a sandbox with exact dependencies. The same Nix expression produces **identical binaries** on any machine, forever.
+---
+
+## Project State
+
+**Starting point:** Lab 6 Docker image works. QuickNotes builds with `go build` (Lab 1).
+
+**After this lab:** A flake at the repo root; reproducibility verified across two independent runs.
 
 ---
 
 ## Prerequisites
 
-- Linux, macOS, or WSL2
-- Basic understanding of package managers
-- Familiarity with Docker (from Lab 6)
-- Git knowledge (from Labs 1-2)
+- Read [Reading 11](../lectures/reading11.md)
+- Install Nix with Flakes enabled:
+  - [Determinate Nix Installer](https://determinate.systems/posts/determinate-nix-installer/) (recommended)
+- ≥ 8 GB free disk
+- A second machine, fresh Docker container (`docker run -it nixos/nix bash`), or a colleague — for verifying reproducibility
 
 ---
 
-## Tasks
+## Task 1 — Reproducible Go Build via Nix Flake (4 pts)
 
-### Task 1 — Build Reproducible Artifacts from Scratch (6 pts)
+### 1.1: Requirements
 
-**Objective:** Write a Nix derivation to build a simple application and prove it produces bit-for-bit identical results across different builds and machines.
+Your `flake.nix` at the **repo root** MUST:
 
-**Why This Matters:** Traditional build tools fail at true reproducibility. Nix's content-addressable store and sandboxed builds guarantee that the same input always produces the same output, enabling perfect reproducibility.
+1. Pin **nixpkgs** to a specific channel revision in `inputs:` (e.g. `nixos-24.11`)
+2. Expose a package `quicknotes` (and `default`) that **builds the QuickNotes Go source from `app/`**
+3. Use `buildGoModule` (or `buildGoApplication`, etc. — your choice; document why)
+4. Set **`CGO_ENABLED = 0`** so the binary is static
+5. Pin **`vendorHash`** (you'll get the value from the first failed build — paste it in)
+6. Use **`-ldflags = [ "-s" "-w" ]`** for size + reproducibility (carried from Lab 6)
+7. Expose a `devShell` with `go`, `gopls`, and `golangci-lint` so collaborators can `nix develop` into the project
 
-#### 1.1: Install Nix Package Manager
+The flake MUST commit cleanly together with **`flake.lock`** (auto-generated) so anyone cloning gets the exact same nixpkgs revision.
 
-1. **Install Nix using the Determinate Systems installer (recommended):**
+### 1.2: Verify reproducibility
 
-   ```bash
-   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
-   ```
+The proof for Task 1 is that **two independent builds produce identical store hashes**:
 
-   > **Why Determinate Nix?** It enables flakes by default and provides better defaults for modern Nix usage.
+```bash
+# machine A (or first sandbox)
+nix build .#quicknotes
+nix-store --query --hash $(readlink result)
+# e.g. sha256:abc123...
 
-   <details>
-   <summary>🐧 Alternative: Official Nix installer</summary>
+# machine B (or `docker run -it nixos/nix bash`, fresh clone)
+git clone YOUR_FORK qn-fresh
+cd qn-fresh
+nix build .#quicknotes
+nix-store --query --hash $(readlink result)
+# MUST match machine A
+```
 
-   ```bash
-   sh <(curl -L https://nixos.org/nix/install) --daemon
-   ```
+### 1.3: Design questions
 
-   Then enable flakes by adding to `~/.config/nix/nix.conf`:
-   ```
-   experimental-features = nix-command flakes
-   ```
+- a) **Why does `go build` not produce bit-identical outputs** on two machines, even from the same Git SHA? (Hint: timestamps, vendor resolution, build IDs.)
+- b) **`vendorHash`** is a SHA over what, exactly? What happens if you set `vendorHash = null;`?
+- c) **`flake.lock`** pins nixpkgs. Why is this the single most important file for reproducibility? What happens if you delete it before the second build?
+- d) **`buildGoModule` vs `buildGoApplication`** — what's the difference? Which would you pick for QuickNotes and why?
 
-   </details>
+### 1.4: Where to start
 
-2. **Verify Installation:**
+- 📖 [Nix Pills](https://nixos.org/guides/nix-pills/) — chapter 1-5 cover the model
+- 📖 [Zero to Nix](https://zero-to-nix.com/) — Determinate's modern walkthrough
+- 📖 [`buildGoModule` reference](https://ryantm.github.io/nixpkgs/languages-frameworks/go/) (nixpkgs section)
+- 📖 [Flakes reference](https://nixos.wiki/wiki/Flakes)
 
-   ```bash
-   nix --version
-   ```
+### 1.5: Document
 
-   You should see Nix 2.x or higher.
-
-3. **Test Basic Nix Usage:**
-
-   ```bash
-   # Try running a program without installing it
-   nix run nixpkgs#hello
-   ```
-
-   This downloads and runs `hello` without installing it permanently.
-
-#### 1.2: Create a Simple Application
-
-1. **Create a lab directory:**
-
-   ```bash
-   mkdir -p labs/lab11/app
-   cd labs/lab11/app
-   ```
-
-2. **Write a simple Go application:**
-
-   Create `main.go`:
-
-   ```go
-   package main
-
-   import (
-       "fmt"
-       "time"
-   )
-
-   func main() {
-       fmt.Printf("Built with Nix at compile time\n")
-       fmt.Printf("Running at: %s\n", time.Now().Format(time.RFC3339))
-   }
-   ```
-
-   > **Note:** We're using Go because it compiles to a single binary, making it easy to verify reproducibility. The same principles apply to any language.
-
-#### 1.3: Write a Nix Derivation
-
-1. **Create a Nix derivation:**
-
-   Create `default.nix` in the same directory:
-
-   <details>
-   <summary>📚 Where to learn Nix derivation syntax</summary>
-
-   - [Nix Pills - Chapter 6: Our First Derivation](https://nixos.org/guides/nix-pills/our-first-derivation.html)
-   - [nix.dev - Declarative builds](https://nix.dev/tutorials/first-steps/declarative-shell)
-   - [Zero to Nix - Building with Nix](https://zero-to-nix.com/concepts/derivations)
-
-   **Key concepts you need:**
-   - `pkgs.buildGoModule` - Function to build Go applications
-   - `pname` - Package name
-   - `version` - Package version
-   - `src` - Source code location (use `./. ` for current directory)
-   - `vendorHash` - Hash of Go dependencies (use `pkgs.lib.fakeHash` initially, then fix)
-
-   **Hint:** Look at examples in nixpkgs for Go applications.
-
-   </details>
-
-2. **Build your application:**
-
-   ```bash
-   nix-build
-   ```
-
-   This creates a `result` symlink pointing to the Nix store path.
-
-3. **Run the built binary:**
-
-   ```bash
-   ./result/bin/app
-   ```
-
-#### 1.4: Prove Reproducibility
-
-1. **Record the store path:**
-
-   ```bash
-   readlink result
-   ```
-
-   Note the Nix store path (e.g., `/nix/store/abc123.../`)
-
-2. **Build again and compare:**
-
-   ```bash
-   rm result
-   nix-build
-   readlink result
-   ```
-
-   **Question:** Is the store path identical?
-
-3. **Compute hash of the binary:**
-
-   ```bash
-   sha256sum ./result/bin/app
-   ```
-
-4. **Compare with Docker (non-reproducible):**
-
-   Create a `Dockerfile`:
-
-   ```dockerfile
-   FROM golang:1.22
-   WORKDIR /app
-   COPY main.go .
-   RUN go build -o app main.go
-   ```
-
-   Build twice:
-
-   ```bash
-   docker build -t test-app .
-   docker build -t test-app .
-   ```
-
-   Docker images will have different hashes even with identical content!
-
-In `labs/submission11.md`, document:
-- Installation steps and verification output
-- Your `default.nix` file with explanations
-- Store path from multiple builds (prove they're identical)
-- SHA256 hash of the binary
-- Comparison with Docker: Why is Docker not reproducible?
-- Analysis: What makes Nix builds reproducible?
-- Explanation of the Nix store path format and what each part means
+In `submissions/lab11.md`:
+- Your `flake.nix` (paste; flake.lock can be linked)
+- `nix build .#quicknotes` log excerpt
+- Two `nix-store --query --hash` outputs from two independent environments — identical
+- `./result/bin/quicknotes &` + `curl /health` proof it runs
+- Design questions a-d answered
 
 ---
 
-### Task 2 — Reproducible Docker Images with Nix (4 pts)
+## Task 2 — Deterministic OCI Image (4 pts)
 
-**Objective:** Use Nix's `dockerTools` to create truly reproducible Docker images and compare them with traditional Dockerfiles.
+### 2.1: Requirements
 
-**Why This Matters:** Traditional Dockerfiles are not reproducible - they include timestamps, pull latest packages, and vary across builds. Nix-built Docker images are content-addressable and reproducible.
+Extend `flake.nix` to expose a `docker` (or similar) package using **`pkgs.dockerTools.buildImage`** that:
 
-#### 2.1: Build Docker Image with Nix
+1. Produces an OCI image tarball containing the QuickNotes binary from Task 1
+2. Sets the binary as `Entrypoint` (exec form)
+3. Sets `ExposedPorts` to include `8080/tcp`
+4. Runs as a `nonroot` user (carry forward Lab 6's discipline)
+5. The image is built **without Docker** — only Nix tooling
 
-1. **Create a Docker image using `dockerTools`:**
+### 2.2: Verify reproducibility
 
-   Create `docker.nix`:
+The proof for Task 2 is that **two independent builds produce identical SHA-256 image digests**:
 
-   <details>
-   <summary>📚 Where to learn about dockerTools</summary>
+```bash
+# environment A
+nix build .#docker
+sha256sum result            # capture digest
 
-   - [nix.dev - Building Docker images](https://nix.dev/tutorials/nixos/building-and-running-docker-images.html)
-   - [nixpkgs dockerTools documentation](https://ryantm.github.io/nixpkgs/builders/images/dockertools/)
+# environment B
+nix build .#docker
+sha256sum result            # MUST match
+```
 
-   **Key concepts:**
-   - `pkgs.dockerTools.buildLayeredImage` - Builds efficient layered images
-   - `name` - Image name
-   - `tag` - Image tag
-   - `contents` - Packages to include in the image
-   - `config.Cmd` - Default command to run
+### 2.3: Compare with Lab 6's Dockerfile build
 
-   **Important:** Avoid using `created = "now"` as it breaks reproducibility!
+Build the Lab 6 image fresh **twice** with `--no-cache`:
 
-   **Hint:** You can use the derivation from Task 1 as `contents`.
+```bash
+docker build --no-cache -t qn-lab6:run1 ./app
+docker build --no-cache -t qn-lab6:run2 ./app
+docker images --no-trunc qn-lab6
+```
 
-   </details>
+Typically the Lab 6 digests **differ** (timestamps in the layers).
 
-2. **Build the Docker image:**
+### 2.4: Design questions
 
-   ```bash
-   nix-build docker.nix
-   ```
+- e) **`dockerTools.buildImage` produces a deterministic image. What does Docker's `docker build` do** that introduces non-determinism, even from the same Dockerfile + Git SHA?
+- f) **For a security auditor**, what can you prove with a reproducible image that you *cannot* prove with a signed-but-non-reproducible image?
+- g) **What's the trade-off** of Nix's reproducibility? Why is `docker build` still the default for most teams?
 
-   This creates a tarball in `result`.
+### 2.5: Document
 
-3. **Load into Docker:**
-
-   ```bash
-   docker load < result
-   ```
-
-4. **Run the container:**
-
-   ```bash
-   docker run <your-image-name>
-   ```
-
-#### 2.2: Compare Image Sizes and Reproducibility
-
-1. **Check Nix-built image size:**
-
-   ```bash
-   docker images | grep <your-image-name>
-   ls -lh result
-   ```
-
-2. **Build equivalent traditional Dockerfile:**
-
-   Create a minimal `Dockerfile.traditional`:
-
-   ```dockerfile
-   FROM scratch
-   COPY --from=golang:1.22 /path/to/binary /app
-   ENTRYPOINT ["/app"]
-   ```
-
-   Build it:
-
-   ```bash
-   docker build -f Dockerfile.traditional -t traditional-app .
-   ```
-
-3. **Compare image sizes:**
-
-   ```bash
-   docker images | grep -E "your-image-name|traditional-app"
-   ```
-
-4. **Test reproducibility:**
-
-   Build the Nix image twice on different days (or simulate with `--option build-repeat 2`):
-
-   ```bash
-   nix-build docker.nix --option build-repeat 2
-   sha256sum result
-   ```
-
-   **Question:** Are the hashes identical?
-
-#### 2.3: Inspect Image Layers
-
-1. **Examine Nix image layers:**
-
-   ```bash
-   docker history <your-nix-image>
-   ```
-
-2. **Compare with traditional image:**
-
-   ```bash
-   docker history traditional-app
-   ```
-
-   Note the differences in layer structure and creation timestamps.
-
-In `labs/submission11.md`, document:
-- Your `docker.nix` file with explanations
-- Image size comparison: Nix vs traditional Dockerfile
-- SHA256 hashes proving reproducibility
-- Docker history output for both images
-- Analysis: Why are Nix-built images smaller and more reproducible?
-- Layer structure comparison
-- Practical advantages of content-addressable Docker images
+In `submissions/lab11.md`:
+- The extended `flake.nix` snippet
+- Image-size comparison: Nix-built vs Lab 6 Docker-built
+- Two `sha256sum` outputs proving identical Nix digests
+- The two `docker images --no-trunc` digests proving Lab 6 differs
+- Design questions e, f, g answered
 
 ---
 
-### Bonus Task — Modern Nix with Flakes (2 pts)
+## Bonus Task — CI-Verified Reproducibility (2 pts)
 
-**Objective:** Modernize your Nix expressions using Flakes for better dependency locking and reproducibility.
+### B.1: Goal
 
-**Why This Matters:** Nix Flakes are the modern standard (2026) for Nix projects. They provide:
-- Automatic dependency locking via `flake.lock`
-- Standardized project structure
-- Better reproducibility across time
-- Easier sharing and collaboration
+Reproducibility you can't prove in CI is folklore. Wire your Nix build into **GitHub Actions** (or GitLab CI) so that **two independent runs** in CI produce identical digests — automatically, on every push.
 
-#### Bonus.1: Convert to Flake
+### B.2: Requirements
 
-1. **Create a `flake.nix`:**
+Add a CI workflow (e.g. `.github/workflows/nix-repro.yml`) that:
 
-   <details>
-   <summary>📚 Where to learn about Flakes</summary>
+1. Triggers on push to any branch + pull requests
+2. Runs **two parallel jobs** (or uses a matrix with two cells) — each on a fresh runner
+3. Each job:
+   - Checks out the repo
+   - Installs Nix (use the [Determinate Nix Installer Action](https://github.com/DeterminateSystems/nix-installer-action) or `cachix/install-nix-action` — pinned by SHA)
+   - Runs `nix build .#docker`
+   - Computes `sha256sum result | awk '{print $1}'`
+   - Uploads that digest as a job output
+4. A **third job** consumes both outputs and **fails the workflow** if they differ
+5. **Pin** the Nix installer action by 40-char SHA (per the Lab 3 rule)
 
-   - [Zero to Nix - Flakes](https://zero-to-nix.com/concepts/flakes)
-   - [NixOS Wiki - Flakes](https://wiki.nixos.org/wiki/Flakes)
-   - [Nix Flakes explained](https://nix.dev/concepts/flakes)
+### B.3: Demonstrate it caught a divergence
 
-   **Key structure:**
-   ```nix
-   {
-     description = "My reproducible app";
+Deliberately break reproducibility in one of the two jobs (e.g. by setting a different `SOURCE_DATE_EPOCH` env var only in job A). Push. Confirm the third job goes **red**. Then fix it. Confirm green.
 
-     inputs = {
-       nixpkgs.url = "github:NixOS/nixpkgs/nixos-23.11";
-     };
+### B.4: Design questions
 
-     outputs = { self, nixpkgs }: {
-       packages.x86_64-linux.default = # your derivation
-       dockerImages.x86_64-linux.default = # your docker image
-     };
-   }
-   ```
+- h) **What's the difference between "reproducible on my laptop" and "reproducible in CI"** that makes the CI proof load-bearing for a security auditor?
+- i) **Why two parallel jobs** instead of one job that runs `nix build` twice? What could a single-job two-build comparison miss?
+- j) **`SOURCE_DATE_EPOCH`** is the canonical env var for forcing build timestamps. Where in your Nix flake would the timestamp normally leak in, and how does `dockerTools.buildImage` handle it?
 
-   **Hint:** Use `nix flake init` to generate a template, then modify it.
+### B.5: Document
 
-   </details>
-
-2. **Generate lock file:**
-
-   ```bash
-   nix flake update
-   ```
-
-   This creates `flake.lock` with pinned dependencies.
-
-3. **Build using flake:**
-
-   ```bash
-   nix build
-   nix build .#dockerImages.x86_64-linux.default
-   ```
-
-#### Bonus.2: Test Portability
-
-1. **Commit your flake to git:**
-
-   ```bash
-   git add flake.nix flake.lock
-   git commit -m "feat: add Nix flake for reproducible builds"
-   ```
-
-2. **Test on another machine (or ask a classmate):**
-
-   ```bash
-   nix build github:yourusername/yourrepo#default
-   ```
-
-3. **Compare store paths:**
-
-   Both machines should get identical store paths!
-
-#### Bonus.3: Add Development Shell
-
-1. **Add a dev shell to your flake:**
-
-   Add to `flake.nix` outputs:
-
-   ```nix
-   devShells.x86_64-linux.default = pkgs.mkShell {
-     buildInputs = [ pkgs.go pkgs.gopls ];
-   };
-   ```
-
-2. **Enter the dev shell:**
-
-   ```bash
-   nix develop
-   ```
-
-   This provides a reproducible development environment!
-
-In `labs/submission11.md`, document:
-- Your complete `flake.nix` with explanations
-- `flake.lock` snippet showing locked dependencies
-- Build outputs from `nix build`
-- Proof that builds are identical across machines/time
-- Dev shell experience: Why is this better than traditional dev setups?
-- Reflection: How do Flakes improve upon traditional Nix expressions?
+In `submissions/lab11.md`:
+- The workflow YAML (paste or link)
+- Green CI run URL + log excerpt showing the two digests match
+- Red CI run URL showing the digest-mismatch failure
+- Design questions h, i, j answered
 
 ---
 
 ## How to Submit
 
-1. Create a branch for this lab and push it:
-
-   ```bash
-   git switch -c feature/lab11
-   # create labs/submission11.md with your findings
-   git add labs/submission11.md labs/lab11/
-   git commit -m "docs: add lab11 submission"
-   git push -u origin feature/lab11
-   ```
-
-2. **Open a PR (GitHub) or MR (GitLab)** from your fork's `feature/lab11` branch → **course repository's main branch**.
-
-3. In the PR/MR description, include:
-
-   ```text
-   Platform: [GitHub / GitLab]
-
-   - [x] Task 1 — Build Reproducible Artifacts from Scratch (6 pts)
-   - [x] Task 2 — Reproducible Docker Images with Nix (4 pts)
-   - [ ] Bonus Task — Modern Nix with Flakes (2 pts) [if completed]
-   ```
-
-4. **Copy the PR/MR URL** and submit it via **Moodle before the deadline**.
+1. `flake.nix` + `flake.lock` at the repo root
+2. *(Bonus)* CI workflow + evidence of green and red runs
+3. `submissions/lab11.md` covers all attempted tasks
+4. PR from `feature/lab11` → course repo's `main`
+5. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab11` exists with commits for each task
-- ✅ File `labs/submission11.md` contains required outputs and analysis for all completed tasks
-- ✅ Directory `labs/lab11/` contains your application code and Nix expressions
-- ✅ Nix derivations successfully build reproducible artifacts
-- ✅ Docker image built with Nix and compared to traditional Dockerfile
-- ✅ Hash comparisons prove reproducibility
-- ✅ **Bonus (if attempted):** `flake.nix` and `flake.lock` present and working
-- ✅ PR/MR from `feature/lab11` → **course repo main branch** is open
-- ✅ PR/MR link submitted via Moodle before the deadline
+### Task 1 (4 pts)
+- ✅ Flake builds QuickNotes via `nix build .#quicknotes`
+- ✅ `./result/bin/quicknotes` runs and serves `/health`
+- ✅ Two independent builds produce **identical** store hashes
+- ✅ `flake.lock` committed
+- ✅ Design questions a-d answered
+
+### Task 2 (4 pts)
+- ✅ `nix build .#docker` produces an OCI image, loadable via `docker load`
+- ✅ Two independent builds produce identical SHA-256 tarball digests
+- ✅ Comparison with non-reproducible Lab 6 image documented
+- ✅ Design questions e, f, g answered
+
+### Bonus Task (2 pts)
+- ✅ CI workflow runs two parallel `nix build` jobs and asserts equal digests
+- ✅ Both a green run AND a deliberately-broken red run exist
+- ✅ Design questions h, i, j answered
 
 ---
 
-## Rubric (12 pts max)
+## Rubric
 
-| Criterion                                           | Points |
-| --------------------------------------------------- | -----: |
-| Task 1 — Build Reproducible Artifacts from Scratch |  **6** |
-| Task 2 — Reproducible Docker Images with Nix        |  **4** |
-| Bonus Task — Modern Nix with Flakes                 |  **2** |
-| **Total**                                           | **12** |
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — Reproducible Go build | **4** | Flake correct, two-environment hash match, design questions |
+| **Task 2** — Deterministic OCI image | **4** | Loadable image, two-environment digest match, vs-Lab 6 comparison |
+| **Bonus** — CI-verified reproducibility | **2** | Two-parallel-jobs CI gate, green + red runs, design questions |
+| **Total** | **10** | (bonus lab — contributes toward bonus-labs grade weight) |
+
+> 📝 **Lab 11 itself is a bonus lab** — its full 10 pts go into the bonus-labs grade component (20% of the final grade; see the course [README](../README.md)).
+
+---
+
+## Common Pitfalls
+
+- 🪤 **First build fails: `hash mismatch`** — that's Nix telling you the *correct* `vendorHash`. Paste the `got:` line, rerun
+- 🪤 **`nix: command not found`** after install — open a new terminal so PATH refreshes
+- 🪤 **Different hashes on two machines** — usually means `flake.lock` is not committed. The lockfile pins nixpkgs to a specific revision
+- 🪤 **Out of disk** — Nix store grows. `nix store gc` reclaims unreferenced paths
+- 🪤 **`nix build` requires internet on first run** — downloads pre-built artifacts from cache.nixos.org. Subsequent builds are mostly local
+- 🪤 **WSL2 multi-user Nix is finicky** — use the Determinate installer; or single-user on WSL2
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission11.md`
-- Include command outputs and written analysis for each task
-- Explain WHY Nix provides better reproducibility than traditional tools
-- Compare before/after results when proving reproducibility
-- Document challenges encountered and how you solved them
-- Include code snippets with explanations, not just paste
+- The reproducibility proof is the deliverable; the flake is just how you got there
+- Pin everything: nixpkgs revision (via `flake.lock`), `vendorHash`, Go version
+- For "two independent environments" the easiest path is `docker run --rm -it -v "$PWD:/repo" -w /repo nixos/nix bash`
+- Once you have this, the natural next step is Cachix (shared binary cache) — out of scope but worth a follow-up project
 
-<details>
-<summary>📚 Helpful Resources</summary>
+---
 
-**Official Documentation:**
-- [nix.dev - Official tutorials](https://nix.dev/)
-- [Zero to Nix - Beginner-friendly guide](https://zero-to-nix.com/)
-- [Nix Pills - Deep dive](https://nixos.org/guides/nix-pills/)
-- [NixOS Package Search](https://search.nixos.org/)
+## Resources
 
-**Docker with Nix:**
-- [Building Docker images - nix.dev](https://nix.dev/tutorials/nixos/building-and-running-docker-images.html)
-- [dockerTools reference](https://ryantm.github.io/nixpkgs/builders/images/dockertools/)
-
-**Flakes:**
-- [Nix Flakes - NixOS Wiki](https://wiki.nixos.org/wiki/Flakes)
-- [Flakes - Zero to Nix](https://zero-to-nix.com/concepts/flakes)
-- [Practical Nix Flakes](https://serokell.io/blog/practical-nix-flakes)
-
-**Community:**
-- [awesome-nix - Curated resources](https://github.com/nix-community/awesome-nix)
-- [NixOS Discourse](https://discourse.nixos.org/)
-
-</details>
-
-<details>
-<summary>💡 Nix Tips</summary>
-
-1. **Store paths are content-addressable:** Same inputs = same output hash
-2. **Use `nix-shell -p pkg` for quick testing** before adding to derivations
-3. **Garbage collect unused builds:** `nix-collect-garbage -d`
-4. **Search for packages:** `nix search nixpkgs golang`
-5. **Read error messages carefully:** Nix errors are verbose but informative
-6. **Use `lib.fakeHash` initially** when you don't know the hash yet
-7. **Avoid network access in builds:** Nix sandboxes block network by default
-8. **Pin nixpkgs version** for maximum reproducibility
-
-</details>
-
-<details>
-<summary>🔧 Troubleshooting</summary>
-
-**If Nix installation fails:**
-- Ensure you have multi-user support (daemon mode recommended)
-- Check `/nix` directory permissions
-- Try the Determinate Systems installer instead of official
-
-**If builds fail with "hash mismatch":**
-- Update the hash in your derivation to match the error message
-- Use `lib.fakeHash` to discover the correct hash
-
-**If Docker load fails:**
-- Verify result is a valid tarball: `file result`
-- Check Docker daemon is running: `docker info`
-- Try `docker load -i result` instead of `docker load < result`
-
-**If flakes don't work:**
-- Ensure experimental features are enabled in `~/.config/nix/nix.conf`
-- Run `nix flake check` to validate flake syntax
-- Make sure your flake is in a git repository
-
-**If cross-machine builds differ:**
-- Check nixpkgs input is locked in `flake.lock`
-- Verify both machines use same Nix version
-- Ensure no `created = "now"` or timestamps in image builds
-
-</details>
-
-<details>
-<summary>🎯 Understanding Reproducibility</summary>
-
-**What makes a build reproducible?**
-- ✅ Deterministic inputs (exact versions, hashes)
-- ✅ Isolated environment (no system dependencies)
-- ✅ No timestamps or random values
-- ✅ Same compiler, same flags, same libraries
-- ✅ Content-addressable storage
-
-**Why traditional tools fail:**
-```bash
-# Docker - timestamps in layers
-docker build .  # Different timestamp = different image hash
-
-# npm - lockfiles help but aren't perfect
-npm install     # Still uses local cache, system libraries
-
-# apt/yum - version drift
-apt-get install nodejs  # Gets different version next week
-```
-
-**How Nix succeeds:**
-```bash
-# Nix - pure, sandboxed, content-addressed
-nix-build       # Same inputs = bit-for-bit identical output
-                # Today, tomorrow, on any machine
-```
-
-**Real-world impact:**
-- **CI/CD:** No more "works on my machine"
-- **Security:** Audit exact dependency tree
-- **Rollback:** Atomic updates with perfect rollbacks
-- **Collaboration:** Everyone gets identical environment
-
-</details>
-
-<details>
-<summary>🌟 Advanced Concepts (Optional Reading)</summary>
-
-**Content-Addressable Store:**
-- Every package has a unique hash based on its inputs
-- `/nix/store/abc123...` where `abc123` = hash of inputs
-- Same inputs = same hash = reuse existing build
-
-**Sandboxing:**
-- Builds run in isolated namespaces
-- No network access (except for fixed-output derivations)
-- No access to `/home`, `/tmp`, or system paths
-- Only declared dependencies are available
-
-**Lazy Evaluation:**
-- Nix expressions are lazily evaluated
-- Only builds what's actually needed
-- Enables massive codebase (all of nixpkgs) without performance issues
-
-**Binary Cache:**
-- cache.nixos.org provides pre-built binaries
-- If your build matches a cached hash, download instead of rebuild
-- Set up private caches for your team
-
-**Cross-Compilation:**
-- Nix makes cross-compilation trivial
-- `pkgs.pkgsCross.aarch64-multiplatform.hello`
-- Same reproducibility guarantees across architectures
-
-</details>
+- 📕 [Nix Pills](https://nixos.org/guides/nix-pills/) — canonical intro
+- 📕 [Zero to Nix](https://zero-to-nix.com/)
+- 📗 [NixOS & Flakes Book](https://nixos-and-flakes.thiscute.world/)
+- 🎥 [Domen Kožar — *Boost your dev env with Nix*](https://www.youtube.com/watch?v=BdF6w3LkkdU)
+- 📝 [Reproducible Builds project](https://reproducible-builds.org/)
+- 📝 [Eelco Dolstra — original Nix paper (PhD thesis, 2004)](https://edolstra.github.io/pubs/phd-thesis.pdf)

@@ -1,358 +1,257 @@
-# Lab 6 — Container Fundamentals with Docker
+# Lab 6 — Containers: Dockerize QuickNotes
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
 ![topic](https://img.shields.io/badge/topic-Containers-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![points](https://img.shields.io/badge/points-10%2B2-orange)
+![tech](https://img.shields.io/badge/tech-Docker%2028.x-informational)
 
-> **Goal:** Master Docker fundamentals through hands-on container management, image operations, networking, and storage tasks.  
-> **Deliverable:** A PR from `feature/lab6` to the course repo with `labs/submission6.md` containing all task outputs and analysis. Submit the PR link via Moodle.
+> **Goal:** Write a multi-stage `Dockerfile` that produces a ≤ 25 MB image of QuickNotes. Write a `compose.yaml` that runs it with healthcheck + persistent volume. Bonus: apply the 6 security defaults from Lecture 6 and prove they work.
+> **Deliverable:** A PR from `feature/lab6` to the course repo with `app/Dockerfile` + `compose.yaml` + `submissions/lab6.md`. Submit the PR link via Moodle.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Managing **container lifecycle** and understanding image-container relationships.
-- Creating **custom Docker images** and analyzing filesystem changes.
-- Implementing **Docker networking** for container communication.
-- Using **volumes** for data persistence across container lifecycles.
+You will not be handed the Dockerfile or compose.yaml. The skill of this lab is **writing them** from requirements + the Lecture 6 patterns + docs.
 
-These skills are essential for containerized application development and deployment in DevOps workflows.
-
----
-
-## Tasks
-
-### Task 1 — Container Lifecycle & Image Management (3 pts)
-
-**Objective:** Master container lifecycle operations and understand the relationship between images and containers.
-
-#### 1.1: Basic Container Operations
-
-1. **List Existing Containers:**
-
-   ```sh
-   docker ps -a
-   ```
-
-2. **Pull Ubuntu Image:**
-
-   ```sh
-   docker pull ubuntu:latest
-   docker images ubuntu
-   ```
-
-3. **Run Interactive Container:**
-  
-   ```sh
-   docker run -it --name ubuntu_container ubuntu:latest
-   ```
-
-   Inside the container, explore:
-   - Check OS version: `cat /etc/os-release`
-   - List processes: `ps aux`
-   - Exit with `exit`
-
-#### 1.2: Image Export and Dependency Analysis
-
-1. **Export the Image:**
-
-   ```sh
-   docker save -o ubuntu_image.tar ubuntu:latest
-   ls -lh ubuntu_image.tar
-   ```
-
-2. **Attempt Image Removal:**
-
-   ```sh
-   docker rmi ubuntu:latest
-   ```
-
-3. **Remove Container and Retry:**
-
-   ```sh
-   docker rm ubuntu_container
-   docker rmi ubuntu:latest
-   ```
-
-In `labs/submission6.md`, document:
-- Output of `docker ps -a` and `docker images`
-- Image size and layer count
-- Tar file size comparison with image size
-- Error message from the first removal attempt
-- Analysis: Why does image removal fail when a container exists? Explain the dependency relationship.
-- Explanation: What is included in the exported tar file?
+By the end you have:
+- `app/Dockerfile` — multi-stage build, final image ≤ 25 MB
+- `compose.yaml` at the repo root running QuickNotes
+- A named volume that survives `docker compose down && up`
+- *(Bonus)* The hardening defaults applied + proof the container can't escape its sandbox
 
 ---
 
-### Task 2 — Custom Image Creation & Analysis (3 pts)
+## Project State
 
-**Objective:** Create custom images from running containers and understand filesystem changes.
+**Starting point:** QuickNotes builds with `go build` (Lab 1); CI runs (Lab 3); VM works (Lab 5).
 
-#### 2.1: Deploy and Customize Nginx
-
-1. **Deploy Nginx Container:**
-
-   ```sh
-   docker run -d -p 80:80 --name nginx_container nginx
-   curl http://localhost
-   ```
-
-2. **Create Custom HTML:**
-
-   Create a file named `index.html` with the following content:
-
-   ```html
-   <html>
-   <head>
-   <title>The best</title>
-   </head>
-   <body>
-   <h1>website</h1>
-   </body>
-   </html>
-   ```
-
-3. **Copy Custom Content:**
-
-   ```sh
-   docker cp index.html nginx_container:/usr/share/nginx/html/
-   curl http://localhost
-   ```
-
-#### 2.2: Create and Test Custom Image
-
-1. **Commit Container to Image:**
-
-   ```sh
-   docker commit nginx_container my_website:latest
-   docker images my_website
-   ```
-
-2. **Remove Original and Deploy from Custom Image:**
-
-   ```sh
-   docker rm -f nginx_container
-   docker run -d -p 80:80 --name my_website_container my_website:latest
-   curl http://localhost
-   ```
-
-3. **Analyze Filesystem Changes:**
-
-   ```sh
-   docker diff my_website_container
-   ```
-
-   <details>
-   <summary>🔍 Understanding docker diff output</summary>
-
-   - `A` = Added file or directory
-   - `C` = Changed file or directory
-   - `D` = Deleted file or directory
-
-   </details>
-
-In `labs/submission6.md`, document:
-- Screenshot or output of original Nginx welcome page
-- Custom HTML content and verification via curl
-- Output of `docker diff my_website_container`
-- Analysis: Explain the diff output (A=Added, C=Changed, D=Deleted)
-- Reflection: What are the advantages and disadvantages of `docker commit` vs Dockerfile for image creation?
+**After this lab:** `docker compose up` is the one-command way to run the project.
 
 ---
 
-### Task 3 — Container Networking & Service Discovery (2 pts)
+## Prerequisites
 
-**Objective:** Explore Docker's built-in networking and DNS-based service discovery.
-
-#### 3.1: Create Custom Network
-
-1. **Create Bridge Network:**
-
-   ```sh
-   docker network create lab_network
-   docker network ls
-   ```
-
-2. **Deploy Connected Containers:**
-
-   ```sh
-   docker run -dit --network lab_network --name container1 alpine ash
-   docker run -dit --network lab_network --name container2 alpine ash
-   ```
-
-#### 3.2: Test Connectivity and DNS
-
-1. **Test Container-to-Container Communication:**
-
-   ```sh
-   docker exec container1 ping -c 3 container2
-   ```
-
-2. **Inspect Network Details:**
-
-   ```sh
-   docker network inspect lab_network
-   ```
-
-3. **Check DNS Resolution:**
-
-   ```sh
-   docker exec container1 nslookup container2
-   ```
-
-In `labs/submission6.md`, document:
-- Output of ping command showing successful connectivity
-- Network inspection output showing both containers' IP addresses
-- DNS resolution output
-- Analysis: How does Docker's internal DNS enable container-to-container communication by name?
-- Comparison: What advantages does user-defined bridge networks provide over the default bridge network?
+- Docker **28.x** (Compose v2 built in)
+- ≥ 4 GB free disk for image cache
 
 ---
 
-### Task 4 — Data Persistence with Volumes (2 pts)
+## Task 1 — Multi-Stage Dockerfile, ≤ 25 MB (6 pts)
 
-**Objective:** Understand data persistence across container lifecycles using Docker volumes.
+### 1.1: Requirements
 
-#### 4.1: Create and Use Volume
+Your `app/Dockerfile` MUST:
 
-1. **Create Named Volume:**
+1. Be **multi-stage** — at least one *builder* stage and one *runtime* stage
+2. The **builder** stage uses an official Go image pinned to `1.24` (any minor patch; not `:latest`)
+3. The **runtime** stage uses a **distroless** or **scratch** base — no shell, no `apt`, no package manager
+4. Build a **static** Go binary (`CGO_ENABLED=0`) — distroless static needs no dynamic linker
+5. Strip the binary with `-ldflags='-s -w'` and use `-trimpath` for reproducibility
+6. Run as **`nonroot`** (UID 65532 if you're using distroless's nonroot tag) — never as root
+7. Set `ENTRYPOINT` (exec form: `["..."]`, not shell form), declare `EXPOSE 8080`
+8. Final image weight: **≤ 25 MB** (verify with `docker images`)
+9. Order Dockerfile lines to **maximize layer cache reuse** — `go.mod / go.sum` before the source
 
-   ```sh
-   docker volume create app_data
-   docker volume ls
-   ```
+### 1.2: Design questions — answer in your submission
 
-2. **Deploy Container with Volume:**
+- a) **Why does layer-order matter?** Show before/after rebuild times for two strategies: `COPY . . && go mod download && go build` vs `COPY go.mod go.sum ./ && go mod download && COPY . . && go build`
+- b) **Why `CGO_ENABLED=0`?** What happens in distroless-static if you forget it?
+- c) **What is `gcr.io/distroless/static:nonroot`?** What's in it, what isn't, and why does that matter for CVEs?
+- d) **`-ldflags='-s -w'` and `-trimpath`:** what does each flag do, and what's the cost?
 
-   ```sh
-   docker run -d -p 80:80 -v app_data:/usr/share/nginx/html --name web nginx
-   ```
+### 1.3: Build + verify
 
-3. **Add Custom Content:**
+After your Dockerfile is in place:
 
-   Create a custom `index.html` file:
+```bash
+cd app/
+docker build -t quicknotes:lab6 .
+docker images quicknotes:lab6     # confirm ≤ 25 MB
+docker run --rm -p 8080:8080 -v "$PWD/data:/data" quicknotes:lab6 &
+sleep 2
+curl -s http://localhost:8080/health
+docker stop $(docker ps -q --filter ancestor=quicknotes:lab6)
+```
 
-   ```html
-   <html><body><h1>Persistent Data</h1></body></html>
-   ```
+### 1.4: Where to start
 
-   Copy to volume:
+- 📖 [Dockerfile reference](https://docs.docker.com/reference/dockerfile/)
+- 📖 [Docker — Multi-stage builds](https://docs.docker.com/build/building/multi-stage/)
+- 📖 [Google Distroless images](https://github.com/GoogleContainerTools/distroless) — read the README; pay attention to the **nonroot** tag and the `static` variant
+- 📖 [Go cmd documentation — build flags](https://pkg.go.dev/cmd/go) (search for `-ldflags`, `-trimpath`)
 
-   ```sh
-   docker cp index.html web:/usr/share/nginx/html/
-   curl http://localhost
-   ```
+### 1.5: Document
 
-#### 4.2: Verify Persistence
+In `submissions/lab6.md`:
+- Your Dockerfile (paste it or link)
+- `docker images quicknotes:lab6` output
+- `docker inspect quicknotes:lab6 | jq '.[0].Config'` excerpt (User, ExposedPorts, Entrypoint)
+- The `golang:1.24-alpine` (or whatever you used) base image size for comparison
+- Written answers to all 4 design questions in 1.2
 
-1. **Destroy and Recreate Container:**
+---
 
-   ```sh
-   docker stop web && docker rm web
-   docker run -d -p 80:80 -v app_data:/usr/share/nginx/html --name web_new nginx
-   curl http://localhost
-   ```
+## Task 2 — Compose + Healthcheck + Persistent Volume (4 pts)
 
-2. **Inspect Volume:**
+### 2.1: Requirements
 
-   ```sh
-   docker volume inspect app_data
-   ```
+Your `compose.yaml` (at the **repo root**) MUST:
 
-In `labs/submission6.md`, document:
-- Custom HTML content used
-- Output of curl showing content persists after container recreation
-- Volume inspection output showing mount point
-- Analysis: Why is data persistence important in containerized applications?
-- Comparison: Explain the differences between volumes, bind mounts, and container storage. When would you use each?
+1. Define a service `quicknotes` that builds from `./app` and tags as `quicknotes:lab6`
+2. Publish port `8080`
+3. Define a **named volume** that mounts at `/data` inside the container — this is where QuickNotes' `notes.json` lives
+4. Define a **healthcheck** for the `quicknotes` service. Distroless has no shell, so think about how a healthcheck even works in this image — your options are limited and you have to pick one
+5. Pass the required env vars: `ADDR`, `DATA_PATH`, `SEED_PATH`
+6. Include `restart: unless-stopped`
+
+### 2.2: Design questions
+
+- e) **Distroless has no shell. How do you healthcheck it?** Pick a strategy; explain. (Options: HTTP via a separate sidecar; `wget`-only debug image; rely on Docker's default behavior of just checking the process is alive; use a binary that's already in the image.)
+- f) **Why does `volumes: [quicknotes-data:/data]` survive `docker compose down`?** And what *does* destroy it?
+- g) **`depends_on` without `condition: service_healthy`** — what does it actually wait for? What's the bug it can cause?
+
+### 2.3: Persistence test
+
+```bash
+docker compose up --build -d
+sleep 3
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"title":"durable","body":"survive a restart"}' \
+  http://localhost:8080/notes
+curl -s http://localhost:8080/notes | grep durable    # exists
+
+docker compose down                 # NOT `down -v`
+docker compose up -d
+sleep 3
+curl -s http://localhost:8080/notes | grep durable    # must STILL exist ✅
+
+docker compose down -v              # NOW the volume dies
+docker compose up -d
+sleep 3
+curl -s http://localhost:8080/notes | grep durable    # gone
+```
+
+### 2.4: Document
+
+In `submissions/lab6.md`:
+- Your `compose.yaml`
+- The 3-step persistence test output (note present → down → up → present → down -v → up → absent)
+- Design questions e, f, g answered
+
+---
+
+## Bonus Task — The 6 Security Defaults (2 pts)
+
+Lecture 6 listed six container-security defaults. Apply **all six** to your `quicknotes` service in `compose.yaml`, then **prove each works**.
+
+### B.1: The 6 defaults
+
+You must apply (and verify) at least each of:
+
+1. **`USER nonroot`** in the Dockerfile (already from Task 1 — explicitly confirm here)
+2. **Distroless or `scratch`** base (already from Task 1)
+3. **Drop all Linux capabilities**, add only what you need (which for QuickNotes is **nothing**)
+4. **Read-only root filesystem**, with a `tmpfs` mount for anywhere the app needs to write (other than your `/data` volume)
+5. **`no-new-privileges`** security option
+6. **Image scanned by Trivy in CI** (you'll wire this fully in Lab 9; for here, just run Trivy once and document)
+
+### B.2: Verify each
+
+For each of 1-5, produce evidence the constraint is *enforced*:
+
+- **`USER nonroot`** → `docker inspect quicknotes:lab6 --format '{{ .Config.User }}'`
+- **No shell available** → `docker compose exec quicknotes sh` should **fail**
+- **Capabilities dropped** → `docker inspect <container> --format '{{ .HostConfig.CapDrop }}'` shows `[ALL]`
+- **Read-only root** → `docker compose exec quicknotes touch /etc/test 2>&1` should fail (no shell to execute it; or via a debug image variant — describe how you tested)
+- **`no-new-privileges`** → inspect `SecurityOpt`
+
+### B.3: Run Trivy
+
+```bash
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy:0.59.1 image --severity HIGH,CRITICAL --no-progress \
+  quicknotes:lab6
+```
+
+Capture the output. With distroless-static, the count is often **zero HIGH/CRITICAL** — that's the value of using a minimal base.
+
+### B.4: Document
+
+In `submissions/lab6.md`:
+- Your hardened `compose.yaml` snippet (the `services.quicknotes` block)
+- The 5 verification outputs from B.2
+- The Trivy summary
+- 3-4 sentences: *which of the 6 defaults gives you the most security per line of YAML?*
 
 ---
 
 ## How to Submit
 
-1. Create a branch for this lab and work on your tasks:
-
-   ```bash
-   git switch -c feature/lab6
-   # Complete all tasks and document in labs/submission6.md
-   git add labs/submission6.md
-   git commit -m "docs: add lab6 submission"
-   git push -u origin feature/lab6
-   ```
-
-2. Open a PR from your fork's `feature/lab6` branch → **course repository's main branch**.
-
-3. In the PR description, include:
-
-   ```text
-   - [x] Task 1 — Container Lifecycle & Image Management
-   - [x] Task 2 — Custom Image Creation & Analysis
-   - [x] Task 3 — Container Networking & Service Discovery
-   - [x] Task 4 — Data Persistence with Volumes
-   ```
-
-4. **Copy the PR URL** and submit it via **Moodle before the deadline**.
+1. `app/Dockerfile` + `compose.yaml` in your fork
+2. `submissions/lab6.md` covers all attempted tasks
+3. PR from `feature/lab6` → course repo's `main`
+4. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab6` exists with commits for each task.
-- ✅ File `labs/submission6.md` contains required outputs and analysis for Tasks 1-4.
-- ✅ All Docker commands executed successfully with documented outputs.
-- ✅ Analysis sections demonstrate understanding of Docker concepts.
-- ✅ PR from `feature/lab6` → **course repo main branch** is open.
-- ✅ PR link submitted via Moodle before the deadline.
+### Task 1 (6 pts)
+- ✅ Multi-stage Dockerfile present
+- ✅ Final image ≤ 25 MB
+- ✅ Runs as nonroot, has `EXPOSE 8080`, distroless or scratch base
+- ✅ `docker run` serves `/health` and `/notes`
+- ✅ All 4 design questions answered
+
+### Task 2 (4 pts)
+- ✅ `compose.yaml` defines named volume, healthcheck, env, restart policy
+- ✅ POSTed note survives `down && up`
+- ✅ Design questions e, f, g answered
+
+### Bonus Task (2 pts)
+- ✅ All 6 security defaults applied
+- ✅ Each verified with a specific command + captured output
+- ✅ Trivy ran; output documented
 
 ---
 
-## Rubric (10 pts)
+## Rubric
 
-| Criterion                                            | Points |
-| ---------------------------------------------------- | -----: |
-| Task 1 — Container Lifecycle & Image Management      |  **3** |
-| Task 2 — Custom Image Creation & Analysis            |  **3** |
-| Task 3 — Container Networking & Service Discovery    |  **2** |
-| Task 4 — Data Persistence with Volumes               |  **2** |
-| **Total**                                            | **10** |
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — Multi-stage Dockerfile | **6** | ≤ 25 MB, distroless+nonroot, layer cache-friendly, design questions |
+| **Task 2** — Compose + volume + healthcheck | **4** | Persistence verified, healthcheck strategy explained, design questions |
+| **Bonus** — 6 hardening defaults | **2** | All 6 applied, each verified, Trivy summary |
+| **Total** | **10 + 2 bonus** | |
+
+---
+
+## Common Pitfalls
+
+- 🪤 **`CGO_ENABLED=1` (the default) → non-static binary** → distroless won't run it (`no such file or directory` because the dynamic linker is missing)
+- 🪤 **Distroless has no shell** → `docker exec ... sh` fails. That's the feature, not a bug. For one-off debug use the `:debug` tag temporarily
+- 🪤 **Image is 200 MB** → you forgot multi-stage; the toolchain leaked into the runtime
+- 🪤 **`USER nonroot` but `data/` is owned by root** on the host → container can't write. Use named volumes (Docker handles ownership) or fix permissions
+- 🪤 **`HEALTHCHECK` shell-form in a no-shell image** → check never runs. Use exec form or pick a tool that exists in the image
+- 🪤 **Layer cache miss every rebuild** → you put `COPY . .` before `go mod download`. Order matters
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission6.md`.
-- Include both command outputs and written analysis for each task.
-- Take screenshots where helpful for demonstrating successful execution.
-- Focus on understanding Docker's architecture rather than just executing commands.
-- Provide thoughtful analysis demonstrating conceptual understanding.
+- Image size is a real cost (egress, registry storage, cold-start latency). Be ruthless
+- Healthcheck must be *cheap* and *side-effect free*
+- Treat the 6 defaults as a checklist for every production container you'll ever ship — they're not lab-only theater
 
-<details>
-<summary>📚 Helpful Resources</summary>
+---
 
-- [Docker Documentation](https://docs.docker.com/)
-- [Docker CLI Reference](https://docs.docker.com/engine/reference/commandline/cli/)
-- [Docker Networking Overview](https://docs.docker.com/network/)
-- [Docker Storage Overview](https://docs.docker.com/storage/)
+## Resources
 
-</details>
-
-<details>
-<summary>💡 Docker Best Practices</summary>
-
-1. Always clean up stopped containers and unused images to conserve disk space.
-2. Use meaningful names for containers and images for easier management.
-3. Understand the difference between ephemeral container storage and persistent volumes.
-4. Use `docker logs` for debugging before attempting to enter containers.
-
-</details>
-
-<details>
-<summary>🔒 Security Notes</summary>
-
-1. Never expose containers on port 80 in production without proper security measures.
-2. Use specific image tags instead of `latest` in production environments.
-3. Regularly update base images to include security patches.
-4. Be cautious with `docker commit` - Dockerfiles provide better traceability and reproducibility.
-
-</details>
+- 📖 [Dockerfile best practices](https://docs.docker.com/build/building/best-practices/)
+- 📖 [Compose specification](https://compose-spec.io/)
+- 📖 [Distroless images repo](https://github.com/GoogleContainerTools/distroless)
+- 📖 [Docker — Security hardening](https://docs.docker.com/engine/security/)
+- 📖 [`HEALTHCHECK` reference](https://docs.docker.com/reference/dockerfile/#healthcheck)
+- 🛠️ [`dive`](https://github.com/wagoodman/dive) — interactive layer explorer
+- 🛠️ [Trivy](https://trivy.dev/)

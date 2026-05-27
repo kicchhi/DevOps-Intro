@@ -1,323 +1,256 @@
-# Lab 7 — GitOps Fundamentals
+# Lab 7 — Configuration Management: Deploy QuickNotes via Ansible
 
 ![difficulty](https://img.shields.io/badge/difficulty-intermediate-yellow)
-![topic](https://img.shields.io/badge/topic-GitOps-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![topic](https://img.shields.io/badge/topic-Config%20Management-blue)
+![points](https://img.shields.io/badge/points-10%2B2-orange)
+![tech](https://img.shields.io/badge/tech-Ansible%2010.x-informational)
 
-> **Goal:** Understand core GitOps principles through simulated reconciliation loops and health monitoring using only Linux command-line tools.  
-> **Deliverable:** A PR from `feature/lab7` to the course repo with `labs/submission7.md` containing all task outputs and analysis. Submit the PR link via Moodle.
+> **Goal:** Write an Ansible playbook that deploys QuickNotes to your Lab 5 VirtualBox VM. Prove idempotency. Bonus: wire `ansible-pull` so the VM auto-converges from your Git repo every 5 minutes.
+> **Deliverable:** A PR from `feature/lab7` to the course repo with `ansible/` + `submissions/lab7.md`. Submit the PR link via Moodle.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Managing **declarative configuration** using Git as the source of truth.
-- Implementing **automated reconciliation loops** to detect and fix drift.
-- Building **self-healing systems** that continuously sync desired state.
-- Monitoring **state synchronization health** with checksums and logging.
+This is the lab that proves cattle-vs-pets in practice. By the end:
+- An `ansible/playbook.yaml` deploys QuickNotes to your Lab 5 VM
+- Re-running the playbook against the same VM produces `changed=0` (idempotency)
+- Editing one variable causes **only** the affected handler to fire
+- *(Bonus)* The VM pulls config from your Git repo via a systemd timer
 
-These simulations mirror how real GitOps tools (ArgoCD, Flux) work, helping you understand the fundamentals before using production tools.
-
----
-
-## Tasks
-
-### Task 1 — Git State Reconciliation (6 pts)
-
-**Objective:** Simulate how GitOps operators continuously synchronize cluster state with Git as the source of truth.
-
-#### 1.1: Setup Desired State Configuration
-
-1. **Create Desired State (Source of Truth):**
-
-   ```bash
-   echo "version: 1.0" > desired-state.txt
-   echo "app: myapp" >> desired-state.txt
-   echo "replicas: 3" >> desired-state.txt
-   ```
-
-2. **Simulate Current Cluster State:**
-
-   ```bash
-   cp desired-state.txt current-state.txt
-   echo "Initial state synchronized"
-   ```
-
-#### 1.2: Create Reconciliation Loop
-
-1. **Create Reconciliation Script:**
-
-   Create a file named `reconcile.sh`:
-
-   ```bash
-   #!/bin/bash
-   # reconcile.sh - GitOps reconciliation loop
-   
-   DESIRED=$(cat desired-state.txt)
-   CURRENT=$(cat current-state.txt)
-   
-   if [ "$DESIRED" != "$CURRENT" ]; then
-       echo "$(date) - ⚠️  DRIFT DETECTED!"
-       echo "Reconciling current state with desired state..."
-       cp desired-state.txt current-state.txt
-       echo "$(date) - ✅ Reconciliation complete"
-   else
-       echo "$(date) - ✅ States synchronized"
-   fi
-   ```
-
-2. **Make Script Executable:**
-
-   ```bash
-   chmod +x reconcile.sh
-   ```
-
-#### 1.3: Test Manual Drift Detection
-
-1. **Simulate Manual Drift:**
-
-   ```bash
-   echo "version: 2.0" > current-state.txt
-   echo "app: myapp" >> current-state.txt
-   echo "replicas: 5" >> current-state.txt
-   ```
-
-2. **Run Reconciliation Manually:**
-
-   ```bash
-   ./reconcile.sh
-   diff desired-state.txt current-state.txt
-   ```
-
-3. **Verify Drift Was Fixed:**
-
-   ```bash
-   cat current-state.txt
-   ```
-
-#### 1.4: Automated Continuous Reconciliation
-
-1. **Start Continuous Reconciliation Loop:**
-
-   ```bash
-   watch -n 5 ./reconcile.sh
-   ```
-
-   <details>
-   <summary>💡 Understanding watch command</summary>
-
-   `watch -n 5` runs the command every 5 seconds, similar to how GitOps tools continuously sync state.
-
-   Press `Ctrl+C` to stop the watch process.
-
-   </details>
-
-2. **In Another Terminal, Trigger Drift:**
-
-   ```bash
-   cd gitops-lab
-   echo "replicas: 10" >> current-state.txt
-   ```
-
-3. **Observe Auto-Healing:**
-
-   Watch the reconciliation loop automatically detect and fix the drift within 5 seconds.
-
-In `labs/submission7.md`, document:
-- Initial desired-state.txt and current-state.txt contents
-- Screenshot or output of drift detection and reconciliation
-- Output showing synchronized state after reconciliation
-- Output from continuous reconciliation loop detecting auto-healing
-- Analysis: Explain the GitOps reconciliation loop. How does this prevent configuration drift?
-- Reflection: What advantages does declarative configuration have over imperative commands in production?
+You write the playbook from requirements. No copy-paste YAML in this spec.
 
 ---
 
-### Task 2 — GitOps Health Monitoring (4 pts)
+## Project State
 
-**Objective:** Implement health checks for configuration synchronization and build proactive monitoring.
+**Starting point:** Lab 5 VM exists; `vagrant up` works. QuickNotes runs locally.
 
-#### 2.1: Create Health Check Script
+**After this lab:** `ansible-playbook -i ... ansible/playbook.yaml` is the one command that produces a running QuickNotes service on the VM.
 
-1. **Create Health Check Script:**
+---
 
-   Create a file named `healthcheck.sh`:
+## Prerequisites
 
-   ```bash
-   #!/bin/bash
-   # healthcheck.sh - Monitor GitOps sync health
-   
-   DESIRED_MD5=$(md5sum desired-state.txt | awk '{print $1}')
-   CURRENT_MD5=$(md5sum current-state.txt | awk '{print $1}')
-   
-   if [ "$DESIRED_MD5" != "$CURRENT_MD5" ]; then
-       echo "$(date) - ❌ CRITICAL: State mismatch detected!" | tee -a health.log
-       echo "  Desired MD5: $DESIRED_MD5" | tee -a health.log
-       echo "  Current MD5: $CURRENT_MD5" | tee -a health.log
-   else
-       echo "$(date) - ✅ OK: States synchronized" | tee -a health.log
-   fi
-   ```
+- Lab 5 VM running (`vagrant up`)
+- Ansible **10.x** on your host (`ansible --version` — needs Python 3.11+)
+- A pre-built static QuickNotes binary you'll ship to the VM (build with `CGO_ENABLED=0 go build` in `app/`)
 
-   ```bash
-   chmod +x healthcheck.sh
-   ```
+---
 
-#### 2.2: Test Health Monitoring
+## Task 1 — Idempotent Deploy to the Lab 5 VM (6 pts)
 
-1. **Test Healthy State:**
+### 1.1: Layout
 
-   ```bash
-   ./healthcheck.sh
-   cat health.log
-   ```
+You will produce, at minimum, this layout in your fork:
 
-2. **Simulate Configuration Drift:**
+```text
+ansible/
+├── inventory.ini          (or .yaml)
+├── playbook.yaml
+├── files/
+│   └── quicknotes         (the static binary)
+└── templates/
+    └── quicknotes.service.j2
+```
 
-   ```bash
-   echo "unapproved-change: true" >> current-state.txt
-   ```
+### 1.2: Playbook requirements
 
-3. **Run Health Check on Drifted State:**
+Your playbook MUST, deploying as `root` (via `become: true`) on the Lab 5 VM:
 
-   ```bash
-   ./healthcheck.sh
-   cat health.log
-   ```
+1. **Create a system user** `quicknotes` (no login shell, no interactive home)
+2. **Ensure a data directory** at `/var/lib/quicknotes`, owned by `quicknotes:quicknotes`, mode `0750`
+3. **Copy the QuickNotes binary** to `/usr/local/bin/quicknotes`, mode `0755`
+4. **Render a systemd unit** to `/etc/systemd/system/quicknotes.service` from a Jinja2 template — values must be **variables** (so changing them in the play changes the deployed unit)
+5. **Reload systemd**, **enable** the service, **start** it
+6. Use a **handler** to restart the service whenever the binary OR the unit file changes — and *only* then
 
-4. **Fix Drift and Verify:**
+### 1.3: Inventory requirements
 
-   ```bash
-   ./reconcile.sh
-   ./healthcheck.sh
-   cat health.log
-   ```
+- Target the Lab 5 VM via the IP + port + SSH key Vagrant uses
+- `vagrant ssh-config` prints exactly what you need
+- Use the `vagrant` user with the Vagrant-generated insecure key
 
-#### 2.3: Continuous Health Monitoring
+### 1.4: Systemd unit template requirements
 
-1. **Create Combined Monitoring Script:**
+The Jinja template produces a unit file that:
+- Starts QuickNotes after `network-online.target`
+- Restarts on failure with a short backoff
+- Runs as the `quicknotes` user, not root
+- Sets `ADDR`, `DATA_PATH`, `SEED_PATH` env vars from playbook variables
+- Sets `WorkingDirectory` to the data dir
 
-   Create a file named `monitor.sh`:
+### 1.5: Design questions — answer in your submission
 
-   ```bash
-   #!/bin/bash
-   # monitor.sh - Combined reconciliation and health monitoring
-   
-   echo "Starting GitOps monitoring..."
-   for i in {1..10}; do
-       echo "\n--- Check #$i ---"
-       ./healthcheck.sh
-       ./reconcile.sh
-       sleep 3
-   done
-   ```
+- a) **What's the difference between `command:` and the dedicated modules** (`apt`, `file`, `copy`, `systemd`)? Which is idempotent, and why does it matter?
+- b) **`notify:` and handlers:** when does a handler fire? When does it *not* fire? Why is that the right default?
+- c) **Variable hierarchy:** Ansible has at least 22 levels of variable precedence. List the top 3 places you'd put a variable for this lab (defaults, group_vars, playbook vars, …) and why
+- d) **`gather_facts: true` is the default.** Do you need it for *this* playbook? What does turning it off save you per run?
 
-   ```bash
-   chmod +x monitor.sh
-   ```
+### 1.6: Where to start
 
-2. **Run Monitoring Loop:**
+- 📖 [Ansible — User Guide](https://docs.ansible.com/ansible/latest/user_guide/index.html)
+- 📖 [Module index — alphabetical](https://docs.ansible.com/ansible/latest/collections/index_module.html). You'll need: `user`, `file`, `copy`, `template`, `systemd`
+- 📖 [Jinja2 templating](https://docs.ansible.com/ansible/latest/user_guide/playbooks_templating.html)
+- 📖 [Ansible — Handlers](https://docs.ansible.com/ansible/latest/user_guide/playbooks_handlers.html)
+- 📖 [Vagrant — Ansible provisioner notes on inventory](https://developer.hashicorp.com/vagrant/docs/provisioning/ansible_intro)
 
-   ```bash
-   ./monitor.sh
-   ```
+### 1.7: Run + verify
 
-3. **Review Complete Health Log:**
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/playbook.yaml --check    # dry-run
+ansible-playbook -i ansible/inventory.ini ansible/playbook.yaml            # real run
 
-   ```bash
-   cat health.log
-   ```
+# from your host:
+curl -s http://localhost:18080/health   # via Vagrant port forward
+```
 
-In `labs/submission7.md`, document:
-- Contents of healthcheck.sh script
-- Output showing "OK" status when states match
-- Output showing "CRITICAL" status when drift is detected
-- Complete health.log file showing multiple checks
-- Output from monitor.sh showing continuous monitoring
-- Analysis: How do checksums (MD5) help detect configuration changes?
-- Comparison: How does this relate to GitOps tools like ArgoCD's "Sync Status"?
+### 1.8: Document
+
+In `submissions/lab7.md`:
+- Your `playbook.yaml`, `inventory.ini`, and template (paste or link)
+- Full PLAY RECAP from the first run (showing tasks `changed`)
+- `curl` output proving the service is reachable
+- Written answers to all 4 design questions in 1.5
+
+---
+
+## Task 2 — Prove Idempotency + Selective Re-run (4 pts)
+
+### 2.1: Required demonstrations
+
+1. **Re-run = zero changes.** Run the playbook a second time without changing anything. Capture the PLAY RECAP — it should show `changed=0`
+2. **Variable tweak = selective change.** Edit *one* variable that affects the template (e.g., `listen_addr` from `:8080` to `:9090`). Re-run. The PLAY RECAP must show:
+   - The `template` task: `changed=1`
+   - The `restart quicknotes` handler: invoked
+   - Other tasks: `ok` (no change)
+3. **`--check --diff`** preview. Make a *third* variable change. Run with `--check --diff` and capture an example diff
+
+### 2.2: Design questions
+
+- e) **Why does the second run report `changed=0`?** What specifically does the `file` / `template` module check to decide?
+- f) **What would happen if you used `shell: 'echo "ADDR=..." > /etc/systemd/system/quicknotes.service'` instead of the `template:` module?** Trace the failure modes
+- g) **`ansible-playbook --check`** is dry-run. **`--diff`** shows changes. What's the bug you'd catch by running `--check --diff` before a production deploy that you'd miss with plain `--check`?
+
+### 2.3: Document
+
+In `submissions/lab7.md`:
+- `changed=0` second-run PLAY RECAP
+- `changed=1` (template only) + handler-fired PLAY RECAP
+- `--check --diff` example
+- Design questions e, f, g answered
+
+---
+
+## Bonus Task — `ansible-pull` GitOps Loop (2 pts)
+
+### B.1: Goal
+
+Make the VM **auto-converge** from your Git repo via a systemd timer. After this:
+- You push a change to `playbook.yaml` on your fork
+- Within ≤ 5 minutes, the VM has reconciled to the new state
+- No `ansible-playbook` from your host needed
+
+### B.2: Requirements
+
+Inside the VM, install + configure:
+
+1. **Ansible** (the package the VM's distro ships) + Git
+2. A **local inventory** that targets `127.0.0.1` via `ansible_connection=local` (the VM is reconciling itself)
+3. A **systemd service unit** that runs `ansible-pull -U <your fork URL> -C <your branch> -i <local inventory> ansible/playbook.yaml`
+4. A **systemd timer** that fires the service every 5 minutes (`OnUnitActiveSec=5min`, also `OnBootSec=1min`)
+5. Enable + start the timer
+
+### B.3: Demonstrate convergence
+
+From your host:
+1. Edit `playbook.yaml` (e.g., change `listen_addr`)
+2. Commit + push to your fork's `feature/lab7`
+3. Record the commit timestamp
+4. Wait for the next timer fire (≤ 5 minutes)
+5. SSH into the VM, confirm the change reconciled
+
+### B.4: Design questions
+
+- h) **`ansible-pull` is "pull" mode. What's the security benefit** vs the "push" model where a control node SSHes in?
+- i) **What's the same pattern called when applied at the Kubernetes layer?** (Hint: Lecture 7 mentioned an industry-standard tool by name.) Why is `ansible-pull` a fair simulator at the VM layer?
+
+### B.5: Document
+
+In `submissions/lab7.md`:
+- `systemctl list-timers | grep ansible-pull` output
+- Timeline of: git commit timestamp → next timer fire → state reconciled in VM
+- Design questions h, i answered
 
 ---
 
 ## How to Submit
 
-1. Complete all tasks and document your work in `labs/submission7.md`
-
-2. Open a PR from your fork's `feature/lab7` branch → **course repository's main branch**.
-
-3. In the PR description, include:
-
-   ```text
-   - [x] Task 1 — Git State Reconciliation
-   - [x] Task 2 — GitOps Health Monitoring
-   ```
-
-4. **Copy the PR URL** and submit it via **Moodle before the deadline**.
+1. `ansible/` directory in your fork with playbook, inventory template, files, templates
+2. `submissions/lab7.md` covers all attempted tasks
+3. PR from `feature/lab7` → course repo's `main`
+4. Submit the PR URL via Moodle
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab7` exists with commits for each task.
-- ✅ File `labs/submission7.md` contains required outputs and analysis for Tasks 1-2.
-- ✅ Scripts `reconcile.sh`, `healthcheck.sh`, and `monitor.sh` are functional.
-- ✅ Health log demonstrates both healthy and drifted states.
-- ✅ Analysis sections demonstrate understanding of GitOps principles.
-- ✅ PR from `feature/lab7` → **course repo main branch** is open.
-- ✅ PR link submitted via Moodle before the deadline.
+### Task 1 (6 pts)
+- ✅ Playbook deploys QuickNotes to the Vagrant VM
+- ✅ Service is `active (running)`; `curl :18080/health` works
+- ✅ Full PLAY RECAP captured
+- ✅ All 4 design questions answered
+
+### Task 2 (4 pts)
+- ✅ Second run shows `changed=0`
+- ✅ Variable tweak fires only the affected handler
+- ✅ `--check --diff` example captured
+- ✅ Design questions e, f, g answered
+
+### Bonus Task (2 pts)
+- ✅ Systemd timer installed and active
+- ✅ Push-to-Git → VM reconciled within 5 min observed
+- ✅ Design questions h, i answered
 
 ---
 
-## Rubric (10 pts)
+## Rubric
 
-| Criterion                                | Points |
-| ---------------------------------------- | -----: |
-| Task 1 — Git State Reconciliation         |  **6** |
-| Task 2 — GitOps Health Monitoring         |  **4** |
-| **Total**                                | **10** |
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — Idempotent Ansible deploy | **6** | Playbook works, service runs, recap + design questions |
+| **Task 2** — Idempotency + handler logic | **4** | `changed=0`, selective change, --diff, design questions |
+| **Bonus** — `ansible-pull` GitOps loop | **2** | Timer active, convergence demoed, design questions |
+| **Total** | **10 + 2 bonus** | |
+
+---
+
+## Common Pitfalls
+
+- 🪤 **SSH connection refused** — `vagrant ssh-config` prints the exact key path and port; copy it into your inventory
+- 🪤 **`shell:` everywhere instead of dedicated modules** — kills idempotency. Reserve `shell:` / `command:` for absolute last resorts
+- 🪤 **`become: true` missing** — most tasks need sudo. Either set on the play or per-task
+- 🪤 **`changed=1` every run for the same template** — file mode / owner mismatch. Run with `--diff` to see what differs
+- 🪤 **Handler not firing** — `notify:` looks up handlers *by name*; typos silently disable them
+- 🪤 **`ansible-pull` URL wrong** — must be an HTTPS clone URL the VM can reach (private repo → needs an access token)
+- 🪤 **VM Python missing** — old boxes ship without Python; use `raw: apt install -y python3` as a bootstrap task
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission7.md`.
-- Include command outputs, script contents, and screenshots where helpful.
-- Focus on understanding the reconciliation loop concept, not just running scripts.
-- Provide thoughtful analysis connecting simulations to real GitOps tools.
-- Document your observations during continuous monitoring.
+- The skill of this lab is **writing idempotent Ansible**. If you find yourself reaching for `shell:`, stop and look for a module that does it
+- `--check --diff` before every production deploy is professional hygiene — treat it that way in this lab too
+- The bonus is the "GitOps preview" — the same conceptual pattern as ArgoCD/Flux, scaled down
 
-<details>
-<summary>📚 GitOps Concepts</summary>
+---
 
-| Task | GitOps Principle           | Real-World Equivalent                 |
-| ---- | -------------------------- | ------------------------------------- |
-| 1    | Continuous Reconciliation  | ArgoCD/Flux sync loops                |
-| 2    | Health Monitoring          | Kubernetes operator status checks     |
+## Resources
 
-**GitOps Philosophy:**
-1. **Git as Single Source of Truth** - All configuration changes go through Git.
-2. **Declarative Configuration** - Define the desired state, not the steps to get there.
-3. **Automated Reconciliation** - Systems continuously sync to match Git state.
-4. **Self-Healing** - Drift is automatically corrected without manual intervention.
-
-</details>
-
-<details>
-<summary>📚 Helpful Resources</summary>
-
-- [GitOps Principles](https://opengitops.dev/)
-- [ArgoCD Documentation](https://argo-cd.readthedocs.io/)
-- [Flux CD Documentation](https://fluxcd.io/docs/)
-
-</details>
-
-<details>
-<summary>💡 Tips</summary>
-
-1. These simulations mirror how real GitOps operators work - just at human speed instead of computer speed!
-2. Understanding these fundamentals prepares you for tools like ArgoCD and Flux CD.
-3. Use multiple terminals to see drift detection in real-time.
-4. Keep your scripts simple and focus on understanding the concepts.
-
-</details>
+- 📖 [Ansible User Guide](https://docs.ansible.com/ansible/latest/user_guide/index.html)
+- 📖 [Module index](https://docs.ansible.com/ansible/latest/collections/index_module.html)
+- 📕 *Ansible Up & Running* — Lorin Hochstein & René Moser (3rd ed)
+- 📗 *Ansible for DevOps* — Jeff Geerling
+- 📖 [`ansible-pull` reference](https://docs.ansible.com/ansible/latest/cli/ansible-pull.html)
+- 📖 [Variable precedence — exhaustive list](https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#understanding-variable-precedence)
+- 🛠️ `ansible-lint`

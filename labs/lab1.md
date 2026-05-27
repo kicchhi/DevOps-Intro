@@ -1,234 +1,325 @@
-# Lab 1 — Introduction to DevOps & Git Workflow
+# Lab 1 — DevOps Foundations: Fork, Sign, and Open Your First PR
 
 ![difficulty](https://img.shields.io/badge/difficulty-beginner-success)
-![topic](https://img.shields.io/badge/topic-DevOps%20Basics-blue)
-![points](https://img.shields.io/badge/points-10-orange)
+![topic](https://img.shields.io/badge/topic-DevOps%20Foundations-blue)
+![points](https://img.shields.io/badge/points-10%2B2-orange)
+![tech](https://img.shields.io/badge/tech-Git%20%2B%20QuickNotes-informational)
 
-> **Goal:** Learn the basic Git workflow (fork → branch → PR) and practice secure commit practices.  
-> **Deliverable:** A PR from `feature/lab1` to the course repo with `labs/submission1.md` containing all checklist items completed. Submit the PR link via Moodle.
+> **Goal:** Get the QuickNotes project running on your machine, configure SSH commit signing, add a PR template, and open your first pull request.
+> **Deliverable:** A PR from `feature/lab1` to the course repository with `submissions/lab1.md`. Submit the PR link via Moodle.
 
 ---
 
 ## Overview
 
-In this lab you will practice:
-- Verifying commit authenticity with **SSH commit signing**.  
-- Standardizing collaboration with a **PR template & checklist**.  
+In this lab you will:
+- Fork the QuickNotes course repository (on **GitHub *or* GitLab** — your choice)
+- Run QuickNotes locally and confirm it works
+- Configure **SSH commit signing** so your commits show "Verified" on GitHub / GitLab
+- Add a **pull request template** so reviewers see structured PR descriptions
+- Engage with the open-source community as proof of joining the broader engineering culture
 
-These are the foundation of collaboration and trust in DevOps teams.
+> **You don't write QuickNotes.** It's already in `app/` — a small Go service you will package, ship, monitor, and harden across the next 10 labs.
 
 ---
 
-## Tasks
+## Project State
 
-### Task 1 — SSH Commit Signature Verification (6 pts)
+**Starting point:** A freshly forked course repo. QuickNotes (`app/`) is provided.
 
-**Objective:** Understand the importance of signed commits and set up SSH commit signature verification.
+**After this lab:** Your fork has a `feature/lab1` branch with `submissions/lab1.md`, your commits show a "Verified" badge, and you've opened a PR to the upstream course repository.
 
-#### 1.1: Explore the Importance of Signed Commits
+---
 
-1. **Research Commit Signing Benefits:**
+## Prerequisites
 
-   - Research why commit signing is crucial for verifying the integrity and authenticity of commits.
-   
-   <details>
-   <summary>📚 Recommended Resources</summary>
-   
-   - [GitHub Docs on SSH Commit Verification](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification)
-   - [Atlassian Guide to SSH and Git](https://confluence.atlassian.com/bitbucketserver/sign-commits-and-tags-with-ssh-keys-1305971205.html)
-   
-   </details>
+Install on your machine (versions are floors, newer is fine):
+- Git **2.49+** (`git --version`)
+- Go **1.24+** (`go version`)
+- An OpenSSH client (`ssh -V`)
+- A GitHub *or* GitLab account with SSH key uploaded
 
-#### 1.2: Set Up SSH Commit Signing
+---
 
-<details>
-<summary>🔑 Option A: Generate New SSH Key (Recommended)</summary>
+## Task 1 — SSH Commit Signing & First Signed Commit (6 pts)
 
-```sh
-ssh-keygen -t ed25519 -C "your_email@example.com"
+**Objective:** Configure Git to sign every commit with an SSH key so reviewers can verify the commit really came from you.
+
+### 1.1: Fork the Course Repository
+
+Pick **one** path that works for you:
+
+- 🐙 **GitHub:** `https://github.com/inno-devops-labs/DevOps-Intro` → click **Fork**
+- 🦊 **GitLab:** clone-mirror at `https://gitlab.pg.innopolis.university/d.creed/DevOps-Intro` → click **Fork**
+
+Clone your fork locally and add the upstream remote:
+
+```bash
+git clone git@github.com:YOUR_USERNAME/DevOps-Intro.git
+cd DevOps-Intro
+git remote add upstream git@github.com:inno-devops-labs/DevOps-Intro.git
+git fetch --all
 ```
 
-Follow the prompts to save the key (default location is fine) and optionally set a passphrase.
+### 1.2: Run QuickNotes
 
-</details>
+```bash
+cd app/
+go run .
+```
 
-<details>
-<summary>🔑 Option B: Use Existing SSH Key</summary>
+In another terminal:
 
-If you already have an SSH key for GitHub authentication, you can reuse it for commit signing. Just ensure it's added to your GitHub account under **Settings → SSH and GPG keys**.
+```bash
+curl -s http://localhost:8080/health | python3 -m json.tool
+curl -s http://localhost:8080/notes  | python3 -m json.tool
+curl -s -X POST http://localhost:8080/notes \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"hello","body":"first POST"}' | python3 -m json.tool
+```
 
-</details>
+You should see 4 seed notes, then 5 after the POST. Capture the output for your submission.
 
-1. **Configure Git for SSH Signing:**
+### 1.3: Configure SSH Signing
 
-   ```sh
-   git config --global user.signingkey <YOUR_SSH_KEY>
-   git config --global commit.gpgSign true
-   git config --global gpg.format ssh
-   ```
+Git ≥ 2.34 supports SSH signing natively — no GPG keyring needed:
 
-   Replace `<YOUR_SSH_KEY>` with your public key path (e.g., `~/.ssh/id_ed25519.pub`).
+```bash
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub   # or your key path
+git config --global commit.gpgsign true
+git config --global tag.gpgsign true
+```
 
-#### 1.3: Make a Signed Commit
+Tell the platform your SSH key is a **signing key**:
+- GitHub: Settings → SSH and GPG keys → **New SSH key**, key type **Signing Key**
+- GitLab: Profile → SSH Keys → tick "Usage type: Authentication & signing"
 
-1. **Create and Sign Commit:**
+### 1.4: Make a Signed Commit
 
-   ```sh
-   git commit -S -m "docs: add commit signing summary"
-   ```
+```bash
+git switch -c feature/lab1
+mkdir -p submissions
+echo "# Lab 1 submission" > submissions/lab1.md
+git add submissions/lab1.md
+git commit -S -s -m "docs(lab1): start submission"
+```
 
-In `labs/submission1.md`, document:
-- A short summary explaining the benefits of signing commits.
-- Evidence of successful SSH key setup and signed commit.
-- Answer: "Why is commit signing important in DevOps workflows?"
-- Screenshots or verification of the "Verified" badge on GitHub.
+Verify the signature locally:
+
+```bash
+git log --show-signature -1
+# look for: Good "git" signature for ...
+```
+
+Push and confirm the **Verified** badge appears on the GitHub / GitLab UI:
+
+```bash
+git push -u origin feature/lab1
+```
+
+### 1.5: Document in `submissions/lab1.md`
+
+Include:
+- Output of `curl` against `/health`, `/notes`, and `POST /notes`
+- Output of `git log --show-signature -1` showing **Good** signature
+- A screenshot of the Verified badge on your platform's PR/commit page
+- A 2-3 sentence explanation: *why* signed commits matter (referencing the xz-utils March 2024 story from Lecture 1)
 
 ---
 
-### Task 2 — PR Template & Checklist (4 pts)
+## Task 2 — Pull Request Template & First PR (3 pts)
 
-**Objective:** Standardize pull requests with a reusable template so reviewers see the same sections and a clear checklist every time.
+**Objective:** Add a `.github/pull_request_template.md` (or GitLab equivalent) and open your first PR using it.
 
-> ⚠️ **One-time bootstrap:** GitHub loads PR templates from the **default branch of the base repo** (your fork’s `main`). Add the template to `main` first, then open your lab PR from `feature/lab1`.
+### 2.1: Add the Template
 
-#### 2.1: Create PR Template
+⚠️ **One-time bootstrap:** GitHub loads PR templates from the **default branch** of the base repo. Add the template to `main` first, then open your lab PR.
 
-1. **Template Location and Setup:**
+On your **main** branch in your fork:
 
-   Create a file at `.github/pull_request_template.md` in your repository.
+```bash
+git switch main
+mkdir -p .github
+cat > .github/pull_request_template.md << 'EOF'
+## Goal
+<!-- What does this PR accomplish? 1 sentence. -->
 
-2. **Choose Your Approach:**
+## Changes
+- 
 
-   <details>
-   <summary>📝 Option A: Discover and Adapt</summary>
-   
-   Find a concise PR template from a reputable open-source project or GitHub docs and adapt it to your needs. Look for templates that include:
-   - Clear sections (Goal/Purpose, Changes, Testing)
-   - A practical checklist
-   - Concise format (≤ 30 lines)
-   
-   </details>
+## Testing
+<!-- How did you verify it? -->
 
-   <details>
-   <summary>📝 Option B: Write Your Own</summary>
-   
-   Create a minimal template with these sections:
-   
-   **Sections:**
-   - **Goal** — What does this PR accomplish?
-   - **Changes** — What was modified?
-   - **Testing** — How was it verified?
-   
-   **Checklist** (3 items):
-   - [ ] Clear, descriptive PR title
-   - [ ] Documentation/README updated (if needed)
-   - [ ] No secrets or large temporary files committed
-   
-   Keep it short and practical (≤ 30 lines).
-   
-   </details>
+## Checklist
+- [ ] Title is a clear sentence (≤ 70 chars)
+- [ ] Commits are signed (`git log --show-signature`)
+- [ ] `submissions/labN.md` updated
+EOF
+git add .github/pull_request_template.md
+git commit -S -s -m "docs: add PR template"
+git push origin main
+```
 
-#### 2.2: Create Lab Branch and Open PR
+GitLab variant: file lives at `.gitlab/merge_request_templates/Default.md` (same content).
 
-1. **Branch Creation:**
+### 2.2: Open the Lab PR
 
-   <details>
-   <summary>💻 Commands</summary>
-   
-   ```bash
-   git checkout -b feature/lab1
-   git add .
-   git commit -m "docs: add lab1 submission stub"
-   git push -u origin feature/lab1
-   ```
-   
-   </details>
+```bash
+git switch feature/lab1
+# add the rest of your submission notes
+git add submissions/lab1.md
+git commit -S -s -m "docs(lab1): finish submission"
+git push origin feature/lab1
+```
 
-#### 2.3: Verify Template Application
+Open a PR from your fork's `feature/lab1` → **course repo's `main`**. Confirm:
+- The PR description auto-populated with your template sections
+- All checkboxes filled
+- Every commit on the PR shows **Verified**
 
-1. **Template Verification:**
+---
 
-   - Open a PR from `feature/lab1` → `main` **in your fork**.
-   - The PR **description auto-fills** with your sections and the **3-item checklist**.
-   - Fill in *Goal / Changes / Testing* and tick the checkboxes.
+## Task 3 — Open-Source Community Engagement (1 pt)
 
-In `labs/submission1.md`, document:
-- Screenshot of PR template auto-filling the description.
-- Evidence that `.github/pull_request_template.md` exists on main branch.
-- Analysis of how PR templates improve collaboration.
-- Note any challenges encountered during setup.
+**Objective:** Make a small, real contribution-shaped action in the open-source ecosystem.
+
+Pick **two** of the following (one is fine for partial credit):
+
+- ⭐ **Star** at least 3 repos that interest you on the platform you use (GitHub or GitLab)
+- 👀 **Follow** at least 2 maintainers or organizations whose work you respect
+- 💬 **Comment thoughtfully** on a GitHub Issue or GitLab MR in any public project (not spam — read the issue first)
+- 🐛 **Open an issue** in any project where you found a real problem (typo in docs, broken link, version mismatch)
+- 🌍 **Contribute a translation** to a docs project that needs Russian
+
+In `submissions/lab1.md`, paste links to your actions and write 2-3 sentences explaining *why* you picked those repos / users.
+
+> **Why this task exists:** DevOps is collaborative by definition. The discipline includes participating in the broader ecosystem — not just consuming it.
+
+---
+
+## Bonus Task — Branch Protection & Required Signed Commits (2 pts)
+
+**Objective:** Enforce signed commits as a branch protection rule on your fork's `main` — demonstrate the policy by trying to bypass it.
+
+### B.1: Configure branch protection on `main`
+
+On GitHub (Settings → Branches → Add rule for `main`):
+- ☑️ **Require signed commits**
+- ☑️ **Require a pull request before merging**
+- ☑️ **Require linear history**
+
+On GitLab (Settings → Repository → Protected branches): equivalent options under push rules.
+
+### B.2: Try to break the rule
+
+```bash
+git switch main
+# disable signing temporarily
+git commit -S=false -s --allow-empty -m "test: unsigned commit (should fail)"
+git push origin main
+# expected: remote rejects with "must be signed" error
+```
+
+Capture the rejection message. Then **re-enable** signing and verify everything still works.
+
+### B.3: Document
+
+In `submissions/lab1.md`:
+- Screenshot of the branch protection rules page
+- The exact `remote: error:` line when you tried the unsigned push
+- A 3-4 sentence reflection: *what would Knight Capital's deploy day have looked like with branch protection + required signing on the prod deploy branch?*
 
 ---
 
 ## How to Submit
 
-1. Create a branch for this lab and push it to your fork:
-
-   ```bash
-   git switch -c feature/lab1
-   # create labs/submission1.md with your findings
-   git add labs/submission1.md
-   git commit -m "docs: add lab1 submission"
-   git push -u origin feature/lab1
-   ```
-
-2. Open a PR from your fork's `feature/lab1` branch → **course repository's main branch**.
-
-3. In the PR description, include:
-
-   ```text
-   - [x] Task 1 done
-   - [x] Task 2 done
-   ```
-
-4. **Copy the PR URL** and submit it via **Moodle before the deadline**.
+1. Ensure `submissions/lab1.md` has sections for Task 1, Task 2, Task 3, and Bonus (if attempted)
+2. Open a PR from your fork's `feature/lab1` → **course repository's main**
+3. Fill in the PR template; tick the checklist
+4. Copy the PR URL and submit via **Moodle before the deadline**
 
 ---
 
 ## Acceptance Criteria
 
-- ✅ Branch `feature/lab1` exists with commits for each task.
-- ✅ File `labs/submission1.md` contains required outputs and analysis for Tasks 1-2.
-- ✅ At least one commit shows **"Verified"** (signed via SSH) on GitHub.
-- ✅ File `.github/pull_request_template.md` exists on the **main** branch.
-- ✅ PR from `feature/lab1` → **course repo main branch** is open.
-- ✅ PR link submitted via Moodle before the deadline.
+### Task 1 (6 pts)
+- ✅ QuickNotes runs locally; you have `curl` output for `/health`, `/notes`, and `POST /notes`
+- ✅ `git log --show-signature -1` shows **Good "git" signature**
+- ✅ At least one commit on the PR shows **Verified** badge
+- ✅ Submission includes a short explanation of *why* signing matters
+
+### Task 2 (3 pts)
+- ✅ `.github/pull_request_template.md` (or GitLab equivalent) exists on `main`
+- ✅ Your PR description auto-populated from the template (visible in the PR diff or screenshot)
+- ✅ Template checklist items are filled
+
+### Task 3 (1 pt)
+- ✅ At least 2 of the 5 engagement options completed with links + reasoning
+
+### Bonus Task (2 pts)
+- ✅ Branch protection rules screenshot
+- ✅ Rejection message from the unsigned-push attempt
+- ✅ Written reflection (3-4 sentences)
 
 ---
 
-## Rubric (10 pts)
+## Rubric
 
-| Criterion                                   | Points |
-| ------------------------------------------- | -----: |
-| Task 1 — SSH commit signing setup + summary |  **6** |
-| Task 2 — PR template & checklist in effect  |  **4** |
-| **Total**                                   | **10** |
+| Task | Points | Criteria |
+|------|-------:|----------|
+| **Task 1** — SSH signing + QuickNotes run | **6** | Valid signature, Verified badge, curl outputs, short rationale |
+| **Task 2** — PR template + first PR | **3** | Template on main, auto-population evidence, checklist filled |
+| **Task 3** — Community engagement | **1** | 2+ engagement actions with links + reasoning |
+| **Bonus Task** — Branch protection + signed-only enforcement | **2** | Rules screenshot, rejection message, reflection |
+| **Total** | **10 + 2 bonus** | |
+
+---
+
+## Common Pitfalls
+
+- 🪤 **PR template doesn't auto-populate** — make sure the template is on `main` *before* opening the PR
+- 🪤 **Commits show "Unverified"** — the SSH key must be added as a *Signing Key* on GitHub (not just an authentication key)
+- 🪤 **`git push` rejected on `main`** — that's the bonus rule working as designed; push to `feature/lab1` instead
+- 🪤 **`gpg.format=ssh` ignored** — confirm Git ≥ 2.34: `git --version`
+- 🪤 **Pushed to the wrong branch** — `git switch feature/lab1` before `git push`
+- 🪤 **PR opened against your fork's main, not the course main** — the base repo selector at the top of the PR-create page is the key
 
 ---
 
 ## Guidelines
 
-- Use clear Markdown headers to organize sections in `submission1.md`.
-- Include both command outputs and written analysis for each task.
-- Document template setup process and verification steps.
-- Ensure commit signing is working correctly with verification screenshots.
+- Submission documents are part of your engineering portfolio — write them as if a future employer will read them
+- Include both **command output** and **written analysis** for each task
+- Screenshots are encouraged for visual evidence (Verified badges, branch protection rules)
+- Never paste real secrets, private SSH keys, or production data
 
 <details>
 <summary>🔒 Security Notes</summary>
 
-1. Ensure the email on your commits matches your GitHub account for proper verification.
-2. Keep SSH keys secure and never commit private keys to repositories.
-3. Verify `gpg.format` is set to `ssh` for proper signing configuration.
-4. Use a passphrase for your SSH keys in production environments.
+1. The SSH private key (`~/.ssh/id_ed25519`) should **never** be committed — `.gitignore` it
+2. Your email on commits must match your GitHub/GitLab account for the Verified badge
+3. Use a passphrase on your SSH key in any environment you care about
+4. The Bonus task's branch protection is a small example of the same pattern that prevents Knight-Capital-style incidents at scale
 
 </details>
 
 <details>
 <summary>📋 Template Best Practices</summary>
 
-1. Confirm the path is `.github/pull_request_template.md` **on `main`** before opening the PR.
-2. Re-open the PR description editor after adding the template if it didn't auto-fill.
-3. Keep templates short—reviewers read many PRs, concise templates get filled, long ones get ignored.
-4. Test your template by opening a test PR before submitting the lab.
+1. Path must be exactly `.github/pull_request_template.md` (singular) — `.github/PULL_REQUEST_TEMPLATE.md` also works
+2. Keep templates short — reviewers ignore long ones
+3. Test your template by opening a *draft* PR before the real submission
+4. If the template doesn't appear, your fork's `main` may not have the file — re-check the path on GitHub's web UI
 
 </details>
+
+---
+
+## Resources
+
+- 📖 [GitHub — Signing commits with SSH](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification)
+- 📖 [GitLab — Sign commits with SSH](https://docs.gitlab.com/ee/user/project/repository/signed_commits/ssh.html)
+- 📖 [Git 2.34 release notes — SSH signing](https://github.blog/2021-11-15-highlights-from-git-2-34/)
+- 📝 [Pro Git, Chapter 6 (Hosted Git Services)](https://git-scm.com/book/en/v2/GitHub-Account-Setup-and-Configuration)
+- 🎥 [Solomon Hykes's PyCon 2013 Docker demo](https://www.youtube.com/watch?v=wW9CAH9nSLs) (for cultural context — DevOps history)
