@@ -180,19 +180,41 @@ Open a PR from your fork's `feature/lab1` → **course repo's `main`**. Confirm:
 
 ---
 
-## Task 3 — Open-Source Community Engagement (1 pt)
+## Task 3 — GitHub Community Engagement (1 pt)
 
-**Objective:** Make a small, real contribution-shaped action in the open-source ecosystem.
+**Objective:** Explore GitHub's social features that support collaboration and discovery.
 
-Pick **two** of the following (one is fine for partial credit):
+**Actions Required:**
+1. **Star** the course repository
+2. **Star** the [simple-container-com/api](https://github.com/simple-container-com/api) project — a promising open-source tool for container management
+3. **Follow** your professor and TAs on GitHub:
+   - Professor: [@Cre-eD](https://github.com/Cre-eD)
+   - TA: [@Naghme98](https://github.com/Naghme98)
+   - TA: [@pierrepicaud](https://github.com/pierrepicaud)
+4. **Follow** at least 3 classmates from the course
 
-- ⭐ **Star** at least 3 repos that interest you on the platform you use (GitHub or GitLab)
-- 👀 **Follow** at least 2 maintainers or organizations whose work you respect
-- 💬 **Comment thoughtfully** on a GitHub Issue or GitLab MR in any public project (not spam — read the issue first)
-- 🐛 **Open an issue** in any project where you found a real problem (typo in docs, broken link, version mismatch)
-- 🌍 **Contribute a translation** to a docs project that needs Russian
+**Add to `submissions/lab1.md`:**
 
-In `submissions/lab1.md`, paste links to your actions and write 2-3 sentences explaining *why* you picked those repos / users.
+A "GitHub Community" section with 1-2 sentences explaining:
+- Why starring repositories matters in open source
+- How following developers helps in team projects and professional growth
+
+<details>
+<summary>💡 GitHub Social Features</summary>
+
+**Why Stars Matter:**
+- Stars help you bookmark interesting projects for later reference
+- Star count indicates project popularity and community trust
+- Starred repos appear in your GitHub profile, showing your interests
+- Stars encourage maintainers and help projects gain visibility
+
+**Why Following Matters:**
+- See what other developers are working on
+- Discover new projects through their activity
+- Build professional connections beyond the classroom
+- Stay updated on classmates' work for future collaboration
+
+</details>
 
 > **Why this task exists:** DevOps is collaborative by definition. The discipline includes participating in the broader ecosystem — not just consuming it.
 
@@ -255,7 +277,9 @@ In `submissions/lab1.md`:
 - ✅ Template checklist items are filled
 
 ### Task 3 (1 pt)
-- ✅ At least 2 of the 5 engagement options completed with links + reasoning
+- ✅ Starred course repo and simple-container-com/api
+- ✅ Following professor, TAs, and 3+ classmates
+- ✅ GitHub Community section in submission
 
 ### Bonus Task (2 pts)
 - ✅ Branch protection rules screenshot
@@ -270,7 +294,7 @@ In `submissions/lab1.md`:
 |------|-------:|----------|
 | **Task 1** — SSH signing + QuickNotes run | **6** | Valid signature, Verified badge, curl outputs, short rationale |
 | **Task 2** — PR template + first PR | **3** | Template on main, auto-population evidence, checklist filled |
-| **Task 3** — Community engagement | **1** | 2+ engagement actions with links + reasoning |
+| **Task 3** — GitHub community engagement | **1** | Stars, follows, and written explanation |
 | **Bonus Task** — Branch protection + signed-only enforcement | **2** | Rules screenshot, rejection message, reflection |
 | **Total** | **10 + 2 bonus** | |
 
