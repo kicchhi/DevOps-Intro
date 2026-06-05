@@ -44,6 +44,7 @@ func (s *Store) load() error {
 	if err != nil {
 		return err
 	}
+	// decode the on-disk JSON array into typed Notes
 	var notes []Note
 	if err := json.Unmarshal(data, &notes); err != nil {
 		return err
