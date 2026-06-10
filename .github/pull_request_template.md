@@ -1,13 +1,16 @@
 ﻿## Goal
-<!-- What does this PR accomplish? 1 sentence. -->
+Выполнение Lab 1
 
 ## Changes
-- 
+- submissions/lab1.md
+- .github/pull_request_template.md
+- SSH signing configured
 
 ## Testing
-<!-- How did you verify it? -->
+- go run ./app
+- curl http://localhost:8080/health
 
 ## Checklist
-- [ ] Title is a clear sentence (≤ 70 chars)
-- [ ] Commits are signed (git log --show-signature)
-- [ ] submissions/labN.md updated
+- [x] Title is a clear sentence
+- [x] Commits are signed
+- [x] submissions/lab1.md updated
