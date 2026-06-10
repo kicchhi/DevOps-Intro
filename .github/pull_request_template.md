@@ -1,13 +1,16 @@
 ﻿## Goal
-<!-- What does this PR accomplish? 1 sentence. -->
+Выполнение Lab 1: настройка SSH подписи коммитов, PR template, GitHub Community
 
 ## Changes
-- 
+- Добавлен submissions/lab1.md
+- Добавлены скриншоты
+- Настроена SSH подпись
 
 ## Testing
-<!-- How did you verify it? -->
+- QuickNotes запущен, API работает
+- git log --show-signature показывает Good signature
 
 ## Checklist
-- [x] Title is a clear sentence (≤ 70 chars)
-- [x] Commits are signed (git log --show-signature)
-- [x] submissions/labN.md updated
+- [x] Title is a clear sentence
+- [x] Commits are signed
+- [x] submissions/lab1.md updated
